@@ -36,8 +36,8 @@ function RelabeledChunk(watershed::OffsetArray{T, 3}) where T <: Integer
 	)
 end
 
-@inline function drop_last(x::UnitRange{T}) where T <: Integer
-	return x.start : x.stop - 1
+@inline function drop_last(x::UnitRange{T}, count::Int = 1) where T <: Integer
+	return x.start : x.stop - count
 end
 
 @inline function stringify(x::UnitRange{T}) where T <: Integer
@@ -141,50 +141,100 @@ end
 
 function compute_regiongraph(watershed::AbstractArray{S, 3}, relabeled::AbstractArray{Label, 3}, agglomeration::AbstractArray{T, 3},
 		regiongraph_edges::Set{AtomicEdge}) where {S <: Integer, T <: Integer}
-	edges = Set{AtomicEdge}()
-	@inbounds @simd for k in drop_last(indices(relabeled, 3))
+
+	# Store 4 different edge types (within chunk, towards x+, towards y+, and towards z+)
+	edges = Dict{String, Set{AtomicEdge}}()
+	center = stringify(indices(relabeled))
+	x_plus = stringify((last(indices(relabeled, 1)) - 1 : last(indices(relabeled, 1)) + 1, indices(relabeled, 2), indices(relabeled, 3)))
+	y_plus = stringify((indices(relabeled, 1), last(indices(relabeled, 2)) - 1 : last(indices(relabeled, 2)) + 1, indices(relabeled, 3)))
+	z_plus = stringify((indices(relabeled, 1), indices(relabeled, 2), last(indices(relabeled, 3)) - 1 : last(indices(relabeled, 3)) + 1))
+	edges[center] = Set{AtomicEdge}()
+	edges[x_plus] = Set{AtomicEdge}()
+	edges[y_plus] = Set{AtomicEdge}()
+	edges[z_plus] = Set{AtomicEdge}()
+
+	# Within Chunk
+	@inbounds @simd for k in drop_last(indices(relabeled, 3), 2)
 		for j in drop_last(indices(relabeled, 2)), i in drop_last(indices(relabeled, 1))
 			if relabeled[i, j, k] !== relabeled[i, j, k + 1] && agglomeration[i, j, k] === agglomeration[i, j, k + 1]
+				edge = getkey(regiongraph_edges.dict, AtomicEdge(watershed[i, j, k], watershed[i, j, k + 1]), nothing)
+				if edge isa AtomicEdge
+					push!(edges[center], AtomicEdge(relabeled[i, j, k], relabeled[i, j, k + 1], edge.affinity))
+				end
+			end
+		end
+	end
+	@inbounds @simd for k in drop_last(indices(relabeled, 3))
+		for j in drop_last(indices(relabeled, 2), 2), i in drop_last(indices(relabeled, 1))
+			if relabeled[i, j, k] !== relabeled[i, j + 1, k] && agglomeration[i, j, k] === agglomeration[i, j + 1, k]
+				edge = getkey(regiongraph_edges.dict, AtomicEdge(watershed[i, j, k], watershed[i, j + 1, k]), nothing)
+				if edge isa AtomicEdge
+					push!(edges[center], AtomicEdge(relabeled[i, j, k], relabeled[i, j + 1, k], edge.affinity))
+				end
+			end
+		end
+	end
+	@inbounds @simd for k in drop_last(indices(relabeled, 3))
+		for j in drop_last(indices(relabeled, 2)), i in drop_last(indices(relabeled, 1), 2)
+			if relabeled[i, j, k] !== relabeled[i + 1, j, k] && agglomeration[i, j, k] === agglomeration[i + 1, j, k]
+				edge = getkey(regiongraph_edges.dict, AtomicEdge(watershed[i, j, k], watershed[i + 1, j, k]), nothing)
+				if edge isa AtomicEdge
+					push!(edges[center], AtomicEdge(relabeled[i, j, k], relabeled[i + 1, j, k], edge.affinity))
+				end
+			end
+		end
+	end
+
+	# towards z+
+	k = last(indices(relabeled, 3)) - 1
+	@inbounds @simd for j in drop_last(indices(relabeled, 2))
+		for i in drop_last(indices(relabeled, 1))
+			if relabeled[i, j, k] !== relabeled[i, j, k + 1] && agglomeration[i, j, k] === agglomeration[i, j, k + 1]
 				if watershed[i, j, k] === watershed[i, j, k + 1]
-					push!(edges, AtomicEdge(relabeled[i, j, k], relabeled[i, j, k + 1], INF_CAPACITY))
+					push!(edges[z_plus], AtomicEdge(relabeled[i, j, k], relabeled[i, j, k + 1], INF_CAPACITY))
 				else
 					edge = getkey(regiongraph_edges.dict, AtomicEdge(watershed[i, j, k], watershed[i, j, k + 1]), nothing)
 					if edge isa AtomicEdge
-						push!(edges, AtomicEdge(relabeled[i, j, k], relabeled[i, j, k + 1], edge.affinity))
+						push!(edges[z_plus], AtomicEdge(relabeled[i, j, k], relabeled[i, j, k + 1], edge.affinity))
 					end
 				end
 			end
 		end
 	end
+	# towards y+
+	j = last(indices(relabeled, 2)) - 1
 	@inbounds @simd for k in drop_last(indices(relabeled, 3))
-		for j in drop_last(indices(relabeled, 2)), i in drop_last(indices(relabeled, 1))
+		for i in drop_last(indices(relabeled, 1))
 			if relabeled[i, j, k] !== relabeled[i, j + 1, k] && agglomeration[i, j, k] === agglomeration[i, j + 1, k]
 				if watershed[i, j, k] === watershed[i, j + 1, k]
-					push!(edges, AtomicEdge(relabeled[i, j, k], relabeled[i, j + 1, k], INF_CAPACITY))
+					push!(edges[y_plus], AtomicEdge(relabeled[i, j, k], relabeled[i, j + 1, k], INF_CAPACITY))
 				else
 					edge = getkey(regiongraph_edges.dict, AtomicEdge(watershed[i, j, k], watershed[i, j + 1, k]), nothing)
 					if edge isa AtomicEdge
-						push!(edges, AtomicEdge(relabeled[i, j, k], relabeled[i, j + 1, k], edge.affinity))
+						push!(edges[y_plus], AtomicEdge(relabeled[i, j, k], relabeled[i, j + 1, k], edge.affinity))
 					end
 				end
 			end
 		end
 	end
+	#towards x+
+	i = last(indices(relabeled, 1)) - 1
 	@inbounds @simd for k in drop_last(indices(relabeled, 3))
-		for j in drop_last(indices(relabeled, 2)), i in drop_last(indices(relabeled, 1))
+		for j in drop_last(indices(relabeled, 2))
 			if relabeled[i, j, k] !== relabeled[i + 1, j, k] && agglomeration[i, j, k] === agglomeration[i + 1, j, k]
 				if watershed[i, j, k] === watershed[i + 1, j, k]
-					push!(edges, AtomicEdge(relabeled[i, j, k], relabeled[i + 1, j, k], INF_CAPACITY))
+					push!(edges[x_plus], AtomicEdge(relabeled[i, j, k], relabeled[i + 1, j, k], INF_CAPACITY))
 				else
 					edge = getkey(regiongraph_edges.dict, AtomicEdge(watershed[i, j, k], watershed[i + 1, j, k]), nothing)
 					if edge isa AtomicEdge
-						push!(edges, AtomicEdge(relabeled[i, j, k], relabeled[i + 1, j, k], edge.affinity))
+						push!(edges[x_plus], AtomicEdge(relabeled[i, j, k], relabeled[i + 1, j, k], edge.affinity))
 					end
 				end
 			end
 		end
 	end
-	return collect(edges)
+
+	return edges
 end
 
 # struct RanStruct
@@ -257,18 +307,21 @@ function edge_task(watershed::CloudVolumeWrapper, agglomeration::CloudVolumeWrap
 	chunk = chunked_labelling(chunk)
 
 	print("Compute Regiongraph: "); tic();
-	edges = compute_regiongraph(watershed_cutout, chunk.watershed_relabeled, agglomeration_cutout, regiongraph_edges)
+	edges_per_chunk = compute_regiongraph(watershed_cutout, chunk.watershed_relabeled, agglomeration_cutout, regiongraph_edges)
 	println(toq())
 
 	print("Write results: "); tic();
 	chunkid = ChunkedGraphs.world_to_chunk(map(first, slices)...)
-	edge_buf = IOBuffer()
 	rg_to_cg_buf = IOBuffer()
-	write(edge_buf, edges)
 	write(rg_to_cg_buf, sort(collect(chunk.rg_to_cg_complete[chunkid])))
-
-	output_storage.val[:put_file](file_path="$(stringify(slices))_atomicedges.bin", content = PyCall.pybytes(edge_buf.data[1:edge_buf.size]))
 	output_storage.val[:put_file](file_path="$(stringify(slices))_rg2cg.bin", content = PyCall.pybytes(rg_to_cg_buf.data[1:rg_to_cg_buf.size]))
+
+	for (slices, edges) in edges_per_chunk
+		edge_buf = IOBuffer()
+		write(edge_buf, sort(collect(edges)))
+		output_storage.val[:put_file](file_path="$(slices)_atomicedges.bin", content = PyCall.pybytes(edge_buf.data[1:edge_buf.size]))
+	end
+
 	output_storage.val[:wait]()
 	println(toq())
 end
