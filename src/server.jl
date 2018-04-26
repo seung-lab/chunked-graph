@@ -45,22 +45,8 @@ gc_enable(false)
 end
 gc_enable(true)
 
-vertices = Vector{UInt64}()
-if(length(cgraph.chunks) > 0)
-	vertices = reinterpret(UInt64, read(open(joinpath(rel(settings["graphpath"]), "vertices.bin"), "r")))
-end
-println("$(length(vertices)) vertices")
-
-function gethandles(v_arr::Vector{UInt64})
-	handles = Dict{UInt32, UInt64}()
-	sizehint!(handles, Int(floor(1.25 * length(v_arr))))
-	for v in v_arr
-		handles[tosegid(v)] = v
-	end
-	return handles
-end
-@time handles = gethandles(vertices)
-vertices = nothing
+rg2cg = Dict{UInt64, Label}(reinterpret(Pair{UInt64, Label}, read(open(joinpath(rel(settings["graphpath"]), "rg_to_cg.bin"), "r"))))
+cg2rg = Dict{Label, UInt64}(reinterpret(Pair{Label, UInt64}, read(open(joinpath(rel(settings["graphpath"]), "cg_to_rg.bin"), "r"))))
 
 function simple_print(x::Array)
 	string('[', map(n->"$(n),", x)..., ']')
@@ -70,7 +56,7 @@ function handle_leaves(id::AbstractString, query::Union{AbstractString, Void})
 	#@Logging.debug("handle_leaves($id)")
 	id = parse(UInt64, id)
 	if tochunkid(id) == 0 # Lvl 1, a neuroglancer supervoxel, need to lookup chunk id
-		id = handles[id]
+		id = rg2cg[id]
 	end
 
 	bbox = (0:typemax(Int), 0:typemax(Int), 0:typemax(Int))
@@ -93,7 +79,7 @@ function handle_leaves(id::AbstractString, query::Union{AbstractString, Void})
 	segments = leaves!(cgraph, ancestor, 1, bbox)
 
 	println("$(now()): selected $(length(segments)) segments with ancestor $(ancestor.label) in region $(bbox)")
-	s = collect(Set{UInt64}(tosegid(x) for x in segments))
+	s = collect(Set{UInt64}(cg2rg[x] for x in segments))
 
 	return HttpServer.Response(reinterpret(UInt8, s), headers)
 end
@@ -104,7 +90,7 @@ function handle_root(id::AbstractString)
 	print("$(now()): Root for segment $(id): ")
 
 	if tochunkid(id) == 0 # Lvl 1, a neuroglancer supervoxel, need to lookup chunk id
-		id = handles[id]
+		id = rg2cg[id]
 	end
 
 	root_vertex = [root!(cgraph, getvertex!(cgraph, id))][1]
@@ -118,7 +104,7 @@ function handle_children(id::AbstractString)
 	id = parse(UInt64, id)
 
 	if tochunkid(id) == 0 # Lvl 1, a neuroglancer supervoxel, need to lookup chunk id
-		id = handles[id]
+		id = rg2cg[id]
 	end
 
 	v = getvertex!(cgraph, id)
@@ -127,8 +113,8 @@ function handle_children(id::AbstractString)
 		s = UInt64[]
 		println("$(now()): handle_children - v: $(v.label), (Level $(tolevel(v)))")
 	elseif tolevel(v) == 2 # Lvl 2, children are neuroglancer supervoxel, need to trim the chunk ids
-		s = UInt64[tosegid(child) for child in v.children]
-		println("$(now()): handle_children - v: $(v.label), (Level $(tolevel(v))), - children: $(simple_print([tosegid(child) for child in v.children]))")
+		s = map(x->cg2rg[x], v.children)
+		println("$(now()): handle_children - v: $(v.label), (Level $(tolevel(v))), - children: $(simple_print(map(x->cg2rg[x], v.children)))")
 	else
 		#s = UInt64[child for child in v.children]
 		s = UInt64[child for child in leaves!(cgraph,v,2)] # J's hack to skip the middle layers and jump right to the pre-meshed lower level agglomeration.
@@ -166,7 +152,7 @@ function handle_split(data::Vector{UInt8})
 		push!(root_labels, root!(cgraph, getvertex!(cgraph, e.v)).label)
 	end
 
-	root_labels = Array{UInt64}(map(x->tolevel(tochunkid(x)) == 1 ? tosegid(x) : x, collect(root_labels)))
+	root_labels = Array{UInt64}(map(x->tolevel(tochunkid(x)) == 1 ? cg2rg[x] : x, collect(root_labels)))
 
 	println("$(now()): Split $(sources) and $(sinks) => $(simple_print(root_labels))")
 	return HttpServer.Response(reinterpret(UInt8, root_labels), headers)
@@ -183,7 +169,7 @@ function handle_merge(data::Vector{UInt8})
 	update!(cgraph)
 
 	root = root!(cgraph, getvertex!(cgraph, segments[1]))
-	println("$(now()): Merged $(tosegid(segments[1])) and $(tosegid(segments[2])) => $(root.label)")
+	println("$(now()): Merged $(cg2rg[segments[1]]) and $(cg2rg[segments[2]]) => $(root.label)")
 	
 	return HttpServer.Response(reinterpret(UInt8, [root.label]), headers)
 end
@@ -228,4 +214,4 @@ server = HttpServer.Server(http)
 cert = MbedTLS.crt_parse_file(joinpath(rel(settings["certpath"]), "server.crt"))
 key = MbedTLS.parse_keyfile(joinpath(rel(settings["certpath"]), "server.key"))
 
-run(server, host=getaddrinfo(settings["host"]), port=settings["port"], ssl=(cert, key))
+#run(server, host=getaddrinfo(settings["host"]), port=settings["port"], ssl=(cert, key))
