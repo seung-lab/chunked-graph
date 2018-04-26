@@ -7,152 +7,141 @@ import PyCall
 import JSON
 
 rel(p::String) = joinpath(dirname(@__FILE__), p)
-settings = JSON.parsefile(rel("graph.conf"))
+settings = JSON.parsefile("graph.conf")
 
 # Ensure graph directory exists and is empty
 if !isdir(settings["graphpath"])
 	mkdir(settings["graphpath"])
 end
-if !isempty(readdir(settings["graphpath"]))
-	error("'$(settings["graphpath"])' is not empty!")
-end
+# if !isempty(readdir(settings["graphpath"]))
+# 	error("'$(settings["graphpath"])' is not empty!")
+# end
 
 # Init Cloud Storage and Chunked Graph
 edgetasks = StorageWrapper(settings["edgetasks"])
 graph = ChunkedGraph(settings["graphpath"], "gs://neuroglancer/removeme/wow")
 
 # Build Graph
-ranges = ([settings["offset"][i] : settings["step"][i]: settings["offset"][i] + settings["size"][i] for i in 1:3]...)
+
+# Phase 1
+ranges = ([settings["offset"][i] : settings["step"][i] : settings["offset"][i] + settings["size"][i] - 1 for i in 1:3]...)
 total = length(ranges[1]) * length(ranges[2]) * length(ranges[3])
+rg_to_cg = Dict{UInt64, Label}()
+cg_to_rg = Dict{Label, UInt64}()
+
 @time begin
 	i = 0
 	for z in ranges[3], y in ranges[2], x in ranges[1]
 		i += 1
-		prefix = "$(x)-$(x+settings["step"][1])_$(y)-$(y+settings["step"][2])_$(z)-$(z+settings["step"][3])"
-		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
-		#rg2cg = edgetasks.val[:get_file]("$(prefix)_rg2cg.bin")
+		chunkid = ChunkedGraphs.world_to_chunk(x, y, z)
+		prefix = "$(x)-$(x + settings["step"][1])_$(y)-$(y + settings["step"][2])_$(z)-$(z + settings["step"][3])"
+		# atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
+		# atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
 
+		rg2cg = edgetasks.val[:get_file]("$(prefix)_rg2cg.bin")
+		rg2cg = Dict{UInt64, Label}(reinterpret(Pair{UInt64, Label}, Vector{UInt8}(rg2cg)))
+		merge!(cg_to_rg, map(reverse, rg2cg))
+
+		# println("$i/$total | $prefix: Adding $(length(rg2cg)) vertices and $(length(atomicedges)) edges")
+
+		# add_atomic_vertices!(graph, collect(values(rg2cg)))
+		# add_atomic_edges!(graph, atomicedges)
+	end
+	write("$(settings["graphpath"])/cg_to_rg.bin", collect(cg_to_rg))
+	write("$(settings["graphpath"])/rg_to_cg.bin", collect(map(reverse, cg_to_rg))) # Note that this will keep only one representative
+
+	# update!(graph)
+	# save!(graph)
+end
+
+# Phase 2
+ranges = ([settings["offset"][i] : settings["step"][i] : settings["offset"][i] + settings["size"][i] - 1 for i in 1:3]...)
+newstep = 2 * settings["step"]
+newstart = newstep .* cld.(settings["offset"], newstep) .+ settings["step"] - 1
+interchunk_ranges = ([newstart[i] : newstep[i] : settings["offset"][i] + settings["size"][i] for i in 1:3]...)
+
+total = length(interchunk_ranges[1]) * length(ranges[2]) * length(ranges[3]) + 
+		length(ranges[1]) * length(interchunk_ranges[2]) * length(ranges[3]) + 
+		length(ranges[1]) * length(ranges[2]) * length(interchunk_ranges[3])
+
+@time begin
+	i = 0
+	for z in ranges[3], y in ranges[2], x in interchunk_ranges[1]
+		i += 1
+		prefix = "$(x)-$(x + 2)_$(y)-$(y + settings["step"][2])_$(z)-$(z + settings["step"][3])"
+		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
 		atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
+
 		println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
-		#rg2cg = Dict{UInt64, Label}(reinterpret(Pair{UInt64, Label}, Vector{UInt8}(rg2cg)))
-		
-		add_atomic_vertices!(graph, unique(vcat(map(x->x.u, atomicedges), map(x->x.v, atomicedges))))
 		add_atomic_edges!(graph, atomicedges)
 	end
+	for z in ranges[3], y in interchunk_ranges[2], x in ranges[1]
+		i += 1
+		prefix = "$(x)-$(x + settings["step"][1])_$(y)-$(y + 2)_$(z)-$(z + settings["step"][3])"
+		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
+		atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
+
+		println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
+		add_atomic_edges!(graph, atomicedges)
+	end
+	for z in interchunk_ranges[3], y in ranges[2], x in ranges[1]
+		i += 1
+		prefix = "$(x)-$(x + settings["step"][1])_$(y)-$(y + settings["step"][2])_$(z)-$(z + 2)"
+		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
+		atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
+
+		println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
+		add_atomic_edges!(graph, atomicedges)
+	end
+
 	update!(graph)
 	save!(graph)
 end
 
+function nextmult(n::Integer, m::Integer)
+	return n >= 0 ? div((n + m - 1), m) * m : div(n, m) * m
+end
 
-#DEBUGGING...
+function prevmult(n::Integer, m::Integer)
+	return -nextmult(-n, m)
+end
 
-# evict! = ChunkedGraphs.evict!
-# upsize! = ChunkedGraphs.upsize!
-# add_vertex! = ChunkedGraphs.add_vertex!
-# rem_vertex! = ChunkedGraphs.rem_vertex!
-# add_edges! = ChunkedGraphs.add_edges!
-# revalidate! = ChunkedGraphs.revalidate!
-# incident_edges = ChunkedGraphs.incident_edges
-# parent = ChunkedGraphs.parent
-# head = ChunkedGraphs.head
-# tail = ChunkedGraphs.tail
-# CACHESIZE = 25
-# const eviction_count = DataStructures.DefaultDict{ChunkID,Int}(0)
-# cgraph = graph
+roisize = prevpow2.(last.(ranges))
 
-# gc_enable(true)
-# cgraph.eviction_mode = true
-# while length(cgraph.chunks) > CACHESIZE
-# 	convict, priority = DataStructures.peek(cgraph.lastused)
-# 	children = cgraph.chunks[convict].children
-# 	if length(children) > 0
-# 		#spare him, kill the children first
-# 		#he'll be put back on death row when his children die
-# 		DataStructures.dequeue!(cgraph.lastused, convict)
-# 		continue
-# 	else
-# 		evict!(cgraph.chunks[convict])
-# 		if (length(cgraph.chunks) == 34)
-# 			break
-# 		end
-# 	end
-# end
+minpoint = (settings["offset"]...)
+midpoint = prevpow2.(last.(ranges))
+maxpoint = ((settings["offset"] .+ settings["size"])...)
 
-# convict, priority = DataStructures.peek(cgraph.lastused)
-# children = cgraph.chunks[convict].children;
 
-# c = cgraph.chunks[convict];
-# t = (eviction_count[c.id] += 1)
+function buildgraph_recursive(settings::Dict{String, Any}, bbox::Tuple{StepRange{Int64},StepRange{Int64},StepRange{Int64}})
+	if any(last.(bbox) .< (settings["offset"]...)) ||
+			any(start.(bbox)) .> ((settings["offset"] .+ settings["size"])...)
+		return
+	end
 
-# Vertex = ChunkedGraphs.Vertex
-# CompositeEdgeSet = ChunkedGraphs.CompositeEdgeSet
-# dirty_vertices = Set{Vertex}()
-# redo_edge_sets = Set{CompositeEdgeSet}()
 
-# # FIXME: We should upsize with the difference of added minus deleted
-# upsize!(c.graph, length(c.added_vertices), length(c.added_edges))
-# upsize!(c.vertices, length(c.added_vertices))
 
-# # Insert added vertices
-# # mark them as dirty_vertices as well
-# for v in c.added_vertices
-# 	@assert parent(tochunkid(v)) == c.id
-# 	@assert v.parent == NULL_LABEL
-# 	@assert !haskey(c.vertices, v.label)
-# 	add_vertex!(c.graph, v.label)
-# 	c.vertices[v.label] = v
-# 	push!(dirty_vertices,v)
-# end
+end
 
-# # Delete vertices and mark the vertices connected to 
-# # the one we are deleting as dirty
-# for v in c.deleted_vertices
-# 	# for child in v.children
-# 	# 	@assert get_vertex(c.cgraph, child).parent === NULL_LABEL
-# 	# end
+# Dataset origin and World origin are usually not the same. We keep it that way
+# as it makes converting chunks to coordinates a bit easier...
+function buildgraph(settings::Dict{String, Any})
+	chunksize = (settings["step"]...)
+	datasetsize = (settings["size"]...)
+	datasetbbox = range.((settings["offset"]...), datasetsize)
+	worldbbox = range.((0, 0, 0), nextpow2.(last.(datasetbbox)))
+	depth = Int(log2(maximum(div.(last.(worldbbox), chunksize))))
 
-# 	for edge_set in incident_edges(c.graph, v.label)
-# 		push!(redo_edge_sets, edge_set)
-# 	end
+	halfsize = 2^(depth-1) .* chunksize
+	offsets = first.(worldbbox)
 
-# 	# this should delete all edges incident with v as well
-# 	rem_vertex!(c.graph, v.label)
-# 	delete!(c.vertices, v.label)
-# end
+	buildgraph_recursive(range.(offsets, halfsize, 2))
 
-# redo_edge = 0
-# for e in redo_edge_sets
-# 	if e.u == 0x0601000000000001 && e.v == 0x06010100000000a7
-# 		redo_edge = e
-# 		break
-# 	end
-# 	for ee in revalidate!(c.cgraph, e)
-# 		u = c.vertices[head(ee)]
-# 		v = c.vertices[tail(ee)]
-# 		add_edges!(c.graph,u.label,v.label,ee)
-# 		push!(dirty_vertices, u, v)
-# 	end
-# end
 
-# isvalid = ChunkedGraphs.isvalid
-# broken = ChunkedGraphs.breakdown!(c.cgraph, redo_edge)
-# bad_edge = first(broken)
-# map(x -> ChunkedGraphs.buildup2!(c.cgraph, x), broken)
 
-# # while !isempty(c.children)
-# # 	ChunkedGraphs.evict!(c.children[end])
-# # end
-
-# # if c.modified
-# # 	ChunkedGraphs.save!(c)
-# # end
-
-# # filter!(x->x != c, c.parent.children)
-# # delete!(c.cgraph.chunks, c.id)
-# # priority = c.cgraph.lastused[c.id]
-# # DataStructures.dequeue!(c.cgraph.lastused, c.id)
-# # if length(c.parent.children) == 0 && !haskey(c.cgraph.lastused, c.parent.id)
-# # 	c.cgraph.lastused[c.parent.id] = priority+1
-# # end
-# # unlock(c.flock)
-# # close(c.flock)
+	midpoint = div.(last.(ranges) .- first.(ranges), 2)
+	
+	right = nextpow2.(last.(ranges))
+	mid = prevpow2.(r .- 1)
+	left = r .- 2 .* m
+end
