@@ -4,5 +4,6 @@ DataStructures
 HttpServer
 IterTools
 LightGraphs
+LightGraphsFlows
 Logging
 NamedTuples

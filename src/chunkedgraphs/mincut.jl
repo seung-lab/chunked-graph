@@ -1,3 +1,5 @@
+using LightGraphsFlows
+
 function common_parent_vertices!(cgraph::ChunkedGraph, lbls::Vector{Label})
 	@assert length(lbls) >= 1
 
@@ -107,9 +109,9 @@ function mincut!(cgraph::ChunkedGraph, sources::Vector{Label}, sinks::Vector{Lab
 		capacities[fake_sink, encode[sink]] = INF_CAPACITY
 	end
 
-	f, _, labels = LightGraphs.multiroute_flow(
+	f, _, labels = LightGraphsFlows.multiroute_flow(
 		flow_graph, fake_source, fake_sink, capacities,
-		flow_algorithm = LightGraphs.BoykovKolmogorovAlgorithm(),
+		flow_algorithm = LightGraphsFlows.BoykovKolmogorovAlgorithm(),
 		routes = 1)
 
 	# No split found, or no split allowed
