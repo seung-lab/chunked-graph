@@ -97,7 +97,7 @@ function save!(c::Chunk)
 	write(buf, UInt64(1)) # Version
 	write(buf, UInt64(c.max_label)) # Max SegID
 	write(buf, UInt64(length(c.vertices))) # Vertex Count
-	write(buf, UInt64(length(LightGraphs.edges(c.graph.g)))) # Edge Count
+	write(buf, UInt64(length(LightGraphs.edges(c.graph.graph)))) # Edge Count
 
 	for vertex in values(c.vertices)
 		write(buf, UInt64(vertex.label)) # Vertex Label
