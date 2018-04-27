@@ -1,7 +1,7 @@
 import Base: show, write, read
 
-using Logging
-const iologger = Logger("iologger", level = OFF)
+# using Logging
+# const iologger = Logger("iologger", level = OFF)
 
 show(io::IO, cgraph::ChunkedGraph) = print("ChunkedGraph with $(length(cgraph.chunks)) chunks in memory")
 
@@ -140,7 +140,7 @@ function save!(c::Chunk)
 
 	prefix = stringify(c.id)
 	path = expanduser(joinpath(c.cgraph.path, "$(prefix).chunk"))
-	info(iologger, "Saving to $(path)...")
+	# info(iologger, "Saving to $(path)...")
 	
 	buf = IOBuffer()
 	write(buf, UInt64(2)) # Version
@@ -162,7 +162,7 @@ function save!(c::Chunk)
 	write(f, buf.data)
 	close(f)
 	close(buf)
-	info(iologger, "Done saving to $(path)")
+	# info(iologger, "Done saving to $(path)")
 	
 	c.modified = false
 end
@@ -171,9 +171,9 @@ const eviction_count = DataStructures.DefaultDict{ChunkID,Int}(0)
 function evict!(c::Chunk)
 	global eviction_count
 	t = (eviction_count[c.id] += 1)
-	if t > 1
-		warn(iologger, "evicted $(stringify(c.id)) $(t) times")
-	end
+	# if t > 1
+	# 	warn(iologger, "evicted $(stringify(c.id)) $(t) times")
+	# end
 
 	@assert !isroot(c)
 	@assert c.id != SECOND_ID

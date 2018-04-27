@@ -1,4 +1,4 @@
-FROM python:3-slim-jessie
+FROM python:3-slim-stretch
 LABEL MAINTAINER="Nico Kemnitz"
 
 ENV JULIA_PATH /usr/local/julia
@@ -34,7 +34,8 @@ RUN set -ex \
 	&& julia -e "Pkg.add(\"DataStructures\"); using DataStructures" \
 	&& julia -e "Pkg.add(\"IterTools\"); using IterTools" \
 	&& julia -e "Pkg.add(\"LightGraphs\"); using LightGraphs" \
-	&& julia -e "Pkg.add(\"Logging\"); using Logging" \
+	&& julia -e "Pkg.add(\"LightGraphsFlows\"); using LightGraphsFlows" \
+	&& julia -e "Pkg.add(\"Memento\"); using Memento" \
 	&& julia -e "Pkg.add(\"CodecZstd\"); using CodecZstd" \
 	&& julia -e "Pkg.add(\"DataFrames\"); using DataFrames" \
 	&& julia -e "Pkg.add(\"Memoize\"); using Memoize" \
