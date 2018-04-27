@@ -7,7 +7,7 @@ import MbedTLS
 import HttpServer
 import HttpCommon
 
-#import Logging # TODO: Broken in 0.6
+import Memento
 import JSON
 
 rel(p::String) = joinpath(dirname(@__FILE__), p)
@@ -21,8 +21,9 @@ settings = JSON.parsefile(rel("server.conf"))
 end
 
 # Basic logging
-#@Logging.configure(level = DEBUG)
-#Logging.configure(filename = joinpath(rel(settings["logpath"]), "graph.log"))
+logger = Memento.getlogger("Graph Operations")
+Memento.setlevel!(logger, "info")
+push!(logger, Memento.DefaultHandler(joinpath(rel(settings["logpath"]), "graph.log"), Memento.DefaultFormatter("[{date} | {level} | {name}]: {msg}")))
 
 # Generate a certificate and key if they do not exist
 if !isfile(joinpath(rel(settings["certpath"]), "server.crt"))
@@ -53,7 +54,7 @@ function simple_print(x::Array)
 end
 
 function handle_leaves(id::AbstractString, query::Union{AbstractString, Void})
-	#@Logging.debug("handle_leaves($id)")
+	Memento.debug(logger, "handle_leaves($id)")
 	id = parse(UInt64, id)
 	if tochunkid(id) == 0 # Lvl 1, a neuroglancer supervoxel, need to lookup chunk id
 		id = rg2cg[id]
@@ -85,7 +86,7 @@ function handle_leaves(id::AbstractString, query::Union{AbstractString, Void})
 end
 
 function handle_root(id::AbstractString)
-	#@Logging.debug("handle_root($id)")
+	Memento.debug(logger, "handle_root($id)")
 	id = parse(UInt64, id)
 	print("$(now()): Root for segment $(id): ")
 
@@ -100,7 +101,7 @@ function handle_root(id::AbstractString)
 end
 
 function handle_children(id::AbstractString)
-	#@Logging.debug("handle_children($id)")
+	Memento.debug(logger, "handle_children($id)")
 	id = parse(UInt64, id)
 
 	if tochunkid(id) == 0 # Lvl 1, a neuroglancer supervoxel, need to lookup chunk id
@@ -125,7 +126,7 @@ function handle_children(id::AbstractString)
 end
 
 function handle_split(data::Vector{UInt8})
-	#@Logging.info("handle_split($(String(data)))")
+	Memento.info("handle_split($(String(data)))")
 	parsed = JSON.parse(String(data))
 
 	sources = unique(convert(Vector{UInt64}, filter(y->y != nothing, map(x->getsupervoxelat(cgraph, parse(UInt64, x[1]), (x[2], x[3], x[4])), parsed["sources"]))))
@@ -159,7 +160,7 @@ function handle_split(data::Vector{UInt8})
 end
 
 function handle_merge(data::Vector{UInt8})
-	#@Logging.info("handle_merge($(String(data)))")
+	Memento.info("handle_merge($(String(data)))")
 	parsed = JSON.parse(String(data))
 
 	segments = unique(convert(Vector{UInt64}, filter(y->y != nothing, map(x->getsupervoxelat(cgraph, parse(UInt64, x[1]), (x[2], x[3], x[4])), parsed))))
@@ -175,7 +176,7 @@ function handle_merge(data::Vector{UInt8})
 end
 
 function handle_save()
-	#@Logging.info("handle_save()")
+	Memento.debug(logger, "handle_save()")
 	update!(cgraph)
 	save!(cgraph)
 	return HttpServer.Response(UInt8[], headers)
@@ -214,4 +215,4 @@ server = HttpServer.Server(http)
 cert = MbedTLS.crt_parse_file(joinpath(rel(settings["certpath"]), "server.crt"))
 key = MbedTLS.parse_keyfile(joinpath(rel(settings["certpath"]), "server.key"))
 
-#run(server, host=getaddrinfo(settings["host"]), port=settings["port"], ssl=(cert, key))
+run(server, host=getaddrinfo(settings["host"]), port=settings["port"], ssl=(cert, key))
