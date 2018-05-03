@@ -1,5 +1,4 @@
 using DataStructures
-using CloudVolume
 
 const Label            = UInt64
 const Affinity         = Float32
@@ -147,15 +146,13 @@ mutable struct ChunkedGraph{C} # {C} is necessary until Julia supports forward d
 	chunks::Dict{ChunkID, C}
 	lastused::PriorityQueue{ChunkID, Float64}
 	path::AbstractString
-	cloudvolume::CloudVolumeWrapper
 end
 
-function ChunkedGraph(graphpath::AbstractString, cloudpath::AbstractString)
+function ChunkedGraph(graphpath::AbstractString)
 	@assert isdir(graphpath)
 	return ChunkedGraph{Chunk}(
 		Dict{ChunkID, Chunk}(),
 		PriorityQueue{ChunkID, Float64}(),
-		graphpath,
-		CloudVolumeWrapper(cloudpath, bounded = false, cache = true)
+		graphpath
 	)
 end

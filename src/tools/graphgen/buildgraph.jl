@@ -1,5 +1,5 @@
 push!(LOAD_PATH, dirname(@__FILE__))
-include("../chunkedgraphs/ChunkedGraphs.jl")
+include("../../chunkedgraphs/ChunkedGraphs.jl")
 using ChunkedGraphs
 using CloudVolume
 
@@ -19,14 +19,13 @@ end
 
 # Init Cloud Storage and Chunked Graph
 edgetasks = StorageWrapper(settings["edgetasks"])
-graph = ChunkedGraph(settings["graphpath"], "gs://neuroglancer/removeme/wow")
+graph = ChunkedGraph(settings["graphpath"])
 
 # Build Graph
 
 # Phase 1
 ranges = ([settings["offset"][i] : settings["step"][i] : settings["offset"][i] + settings["size"][i] - 1 for i in 1:3]...)
 total = length(ranges[1]) * length(ranges[2]) * length(ranges[3])
-cg_to_rg = Dict{Label, UInt64}()
 
 @time begin
 	i = 0
@@ -39,15 +38,14 @@ cg_to_rg = Dict{Label, UInt64}()
 
 		rg2cg = edgetasks.val[:get_file]("$(prefix)_rg2cg.bin")
 		rg2cg = Dict{UInt64, Label}(reinterpret(Pair{UInt64, Label}, Vector{UInt8}(rg2cg)))
-		merge!(cg_to_rg, map(reverse, rg2cg))
+		cg2rg = map(reverse, rg2cg)
+		write("$(settings["graphpath"])/cg2rg_$(ChunkedGraphs.stringify(chunkid)).bin", collect(cg2rg))
 
 		println("$i/$total | $prefix: Adding $(length(rg2cg)) vertices and $(length(atomicedges)) edges")
 
 		add_atomic_vertices!(graph, collect(values(rg2cg)))
 		add_atomic_edges!(graph, atomicedges)
 	end
-	write("$(settings["graphpath"])/cg_to_rg.bin", collect(cg_to_rg))
-	write("$(settings["graphpath"])/rg_to_cg.bin", collect(map(reverse, cg_to_rg))) # Note that this will keep only one representative
 
 	update!(graph)
 	save!(graph)

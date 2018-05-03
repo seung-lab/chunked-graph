@@ -1,5 +1,5 @@
 push!(LOAD_PATH, dirname(@__FILE__))
-include("../chunkedgraphs/ChunkedGraphs.jl")
+include("../../chunkedgraphs/ChunkedGraphs.jl")
 using ChunkedGraphs
 using CloudVolume
 using CodecZstd
