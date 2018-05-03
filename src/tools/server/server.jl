@@ -165,7 +165,7 @@ end
 
 function rg2cg(cgs::ChunkedGraphServer, rgid::UInt64, pos::Tuple{Integer,Integer,Integer},
 		default::Union{Label,Void} = nothing)
-	chunkid = ChunkedGraphs.world_to_chunk(pos...)
+	chunkid = ChunkedGraphs.world_to_chunkid(cgs.cgraph, pos)
 	loadlabels!(cgs, chunkid)
 	return get(cgs.rg2cg[chunkid], rgid, default)
 end
@@ -188,12 +188,12 @@ function handle_leaves(cgs::ChunkedGraphServer, cgid::AbstractString, query::Uni
 		matches = match(r"bounds=(\d+)-(\d+)_(\d+)-(\d+)_(\d+)-(\d+)", query)
 		if matches !== nothing
 			bounds = map(x -> parse(Int, x), matches.captures)
-			chunk_min = fld(bounds[1], ChunkedGraphs.CHUNK_SIZE[1]),
-						fld(bounds[3], ChunkedGraphs.CHUNK_SIZE[2]),
-						fld(bounds[5], ChunkedGraphs.CHUNK_SIZE[3])
-			chunk_max = fld(bounds[2] - 1, ChunkedGraphs.CHUNK_SIZE[1]),
-						fld(bounds[4] - 1, ChunkedGraphs.CHUNK_SIZE[2]),
-						fld(bounds[6] - 1, ChunkedGraphs.CHUNK_SIZE[3])
+			chunk_min = fld(bounds[1], cgs.cgraph.CHUNKSIZE[1]),
+						fld(bounds[3], cgs.cgraph.CHUNKSIZE[2]),
+						fld(bounds[5], cgs.cgraph.CHUNKSIZE[3])
+			chunk_max = fld(bounds[2] - 1, cgs.cgraph.CHUNKSIZE[1]),
+						fld(bounds[4] - 1, cgs.cgraph.CHUNKSIZE[2]),
+						fld(bounds[6] - 1, cgs.cgraph.CHUNKSIZE[3])
 			bbox = (chunk_min[1]:chunk_max[1], chunk_min[2]:chunk_max[2], chunk_min[3]:chunk_max[3])
 		end
 	end

@@ -11,7 +11,7 @@ function leaves!(cgraph::ChunkedGraph, vertex::Vertex, stop_lvl::Integer = 1, bb
 	while lvl > stop_lvl + 1
 		vertices = map(lbl->getvertex!(cgraph, lbl), mapreduce(v->v.children, vcat, Label[], vertices))
 		if bbox !== nothing
-			filter!(v->overlaps(tocuboid(tochunkid(v)), bbox::Cuboid), vertices)
+			filter!(v->overlaps(tocuboid(cgraph, tochunkid(v)), bbox::Cuboid), vertices)
 		end
 		lvl -= 1
 	end
@@ -23,7 +23,7 @@ end
 
 function promote!(cgraph::ChunkedGraph, vertex::Vertex)
 	c = getchunk!(cgraph, tochunkid(vertex))
-	@assert tolevel(c) < MAX_DEPTH
+	@assert tolevel(c) < cgraph.MAX_DEPTH
 
 	@assert c.clean
 	@assert vertex.parent == NULL_LABEL
@@ -70,7 +70,7 @@ function update!(cgraph::ChunkedGraph)
 	global n_processed
 	n_processed = 0
 	gc_enable(false)
-	update!(getchunk!(cgraph, TOP_ID))
+	update!(getchunk!(cgraph, cgraph.TOP_ID))
 	gc_enable(true)
 end
 
@@ -97,7 +97,7 @@ function add_atomic_vertices!(cgraph::ChunkedGraph, lbls::Vector{Label})
 end
 
 function add_atomic_edge!(cgraph::ChunkedGraph, edge::AtomicEdge)
-	c = getchunk!(cgraph, lca(tochunkid(edge.u), tochunkid(edge.v)))
+	c = getchunk!(cgraph, lca(cgraph, tochunkid(edge.u), tochunkid(edge.v)))
 	push!(c.added_edges, edge)
 	touch!(c)
 end
@@ -111,7 +111,7 @@ function add_atomic_edges!(cgraph::ChunkedGraph, edges::Vector{AtomicEdge})
 end
 
 function delete_atomic_edge!(cgraph::ChunkedGraph, edge::AtomicEdge)
-	c = getchunk!(cgraph, lca(tochunkid(edge.u), tochunkid(edge.v)))
+	c = getchunk!(cgraph, lca(cgraph, tochunkid(edge.u), tochunkid(edge.v)))
 	push!(c.deleted_edges, edge)
 	touch!(c)
 end

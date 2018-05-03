@@ -62,7 +62,7 @@ function getchunk!(cgraph::ChunkedGraph, chunkid::ChunkID)
 		end
 		
 		eviction_mode = true
-		while length(cgraph.chunks) > CACHESIZE
+		while length(cgraph.chunks) > cgraph.CACHESIZE
 			evict!(cgraph.chunks[DataStructures.peek(cgraph.lastused)[1]])
 		end
 		eviction_mode = false
@@ -124,7 +124,7 @@ end
 
 function evict!(c::Chunk)
 	@assert !isroot(c)
-	@assert c.id != SECOND_ID
+	@assert c.id != c.cgraph.SECOND_ID
 	update!(c)
 	while !isempty(c.children)
 		evict!(c.children[end])

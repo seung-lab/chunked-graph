@@ -45,7 +45,7 @@ function induced_subgraph!(cgraph::ChunkedGraph, chunk::Chunk, vertices::Vector{
 			foreach(v->getchunk!(cgraph, tochunkid(v)), vertices)
 
 			# From the current set of chunks, collect all child chunks that still lie within the ROI
-			chunks = filter(subc->overlaps(tocuboid(tochunkid(subc)), bbox), vcat([c.children for c in chunks]...))
+			chunks = filter(subc->overlaps(tocuboid(cgraph, tochunkid(subc)), bbox), vcat([c.children for c in chunks]...))
 		end
 		lvl -= 1
 	end

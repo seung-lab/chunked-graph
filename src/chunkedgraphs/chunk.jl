@@ -18,7 +18,7 @@ mutable struct Chunk
 	function Chunk(cgraph::ChunkedGraph, chunkid::ChunkID, vertices::Dict{Label,Vertex}, graph::MultiGraph, max_label::Label)
 		c = new(cgraph, chunkid, graph, vertices, nothing, Chunk[], Set{Vertex}(), Set{Vertex}(), Set{AtomicEdge}(), Set{AtomicEdge}(), true, false, max_label)
 
-		if !isroot(chunkid)
+		if !isroot(cgraph, chunkid)
 			par = parent!(c)
 			push!(par.children, c)
 			c.parent = par
@@ -44,11 +44,11 @@ end
 end
 
 @inline function isroot(c::Chunk)
-	return isroot(c.id)
+	return isroot(c.cgraph, c.id)
 end
 
 @inline function parent!(c::Chunk)
-	return getchunk!(c.cgraph, parent(c.id))
+	return getchunk!(c.cgraph, parent(c.cgraph, c.id))
 end
 
 function touch!(c::Void)

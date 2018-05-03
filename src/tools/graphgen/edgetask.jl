@@ -57,7 +57,7 @@ end
 function load_labels(watershed::OffsetArray{T, 3}) where T <: Integer
 	voxel_range = indices(watershed)[1:3]
 	# Collect all Chunk IDs intersecting with voxel_range.
-	chunks_to_fetch = reshape([ChunkedGraphs.world_to_chunk(x, y, z) for
+	chunks_to_fetch = reshape([ChunkedGraphs.world_to_chunkid(CG_CHUNKSIZE, (x, y, z)) for
 						x in (first(voxel_range[1]):CG_CHUNKSIZE[1]:last(voxel_range[1])),
 						y in (first(voxel_range[2]):CG_CHUNKSIZE[2]:last(voxel_range[2])),
 						z in (first(voxel_range[3]):CG_CHUNKSIZE[3]:last(voxel_range[3]))], :)
@@ -104,7 +104,7 @@ function chunked_labelling(chunk::RelabeledChunk{T}) where T <: Integer
 	chunk.watershed_relabeled = OffsetArray(Label, indices(chunk.watershed_original)...)
 
 	for k in indices(chunk.watershed_original, 3), j in indices(chunk.watershed_original, 2), i in indices(chunk.watershed_original, 1)
-		chunkid = ChunkedGraphs.world_to_chunk(i, j, k)
+		chunkid = ChunkedGraphs.world_to_chunkid(CG_CHUNKSIZE, (i, j, k))
 
 		# Don't relabel cell boundary
 		if chunk.watershed_original[i, j, k] == 0
@@ -311,7 +311,7 @@ function edge_task(watershed::CloudVolumeWrapper, agglomeration::CloudVolumeWrap
 	println(toq())
 
 	print("Write results: "); tic();
-	chunkid = ChunkedGraphs.world_to_chunk(map(first, slices)...)
+	chunkid = ChunkedGraphs.world_to_chunkid(CG_CHUNKSIZE, (map(first, slices)...))
 	rg_to_cg_buf = IOBuffer()
 	write(rg_to_cg_buf, sort(collect(chunk.rg_to_cg_complete[chunkid])))
 	output_storage.val[:put_file](file_path="$(stringify(slices))_rg2cg.bin", content = PyCall.pybytes(rg_to_cg_buf.data[1:rg_to_cg_buf.size]))

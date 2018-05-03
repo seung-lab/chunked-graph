@@ -4,6 +4,12 @@ include("../src/chunkedgraphs/ChunkedGraphs.jl")
 using ChunkedGraphs
 using Base.Test
 
+settings = Dict{String,Any}(
+	"maxdepth" => 8,
+	"chunksize" => (512, 512, 64),
+	"cachesize" => 1000
+)
+
 function test_cases()
 	@testset "all_tests" begin
 		if !isdir("/tmp/graph")
@@ -11,7 +17,9 @@ function test_cases()
 		end
 
 		@testset "add test_add_atomic_node" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			label = tolabel(1,0,0,0,1)
 			add_atomic_vertex!(G, label)
 			update!(G)
@@ -21,7 +29,9 @@ function test_cases()
 		end
 
 		@testset "test_circle" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			add_atomic_vertex!(G, tolabel(1,0,0,0,3))
 			add_atomic_vertex!(G, tolabel(1,0,0,0,2))
 			add_atomic_vertex!(G, tolabel(1,0,0,0,1))
@@ -37,7 +47,9 @@ function test_cases()
 		end
 
 		@testset "test_circle_external_edge" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			add_atomic_vertex!(G, tolabel(1,0,0,1,3))
 			add_atomic_vertex!(G, tolabel(1,0,0,0,2))
 			add_atomic_vertex!(G, tolabel(1,0,0,0,1))
@@ -51,7 +63,9 @@ function test_cases()
 		end
 
 		@testset "delete_edge_same_chunk" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			add_atomic_vertex!(G, tolabel(1,0,0,0, 1) )
 			add_atomic_vertex!(G, tolabel(1,0,0,0, 2) )
 			add_atomic_edge!(G, AtomicEdge(tolabel(1,0,0,0,1), tolabel(1,0,0,0,2), 1.f0))
@@ -64,7 +78,9 @@ function test_cases()
 		end
 
 		@testset "delete_edge_different_chunk" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			u = tolabel(1,0,0,0,1)
 			v = tolabel(1,0,0,1,2)
 			add_atomic_vertex!(G, u)
@@ -81,7 +97,9 @@ function test_cases()
 		end
 
 		@testset "test_3_node_delete" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			add_atomic_vertex!(G, tolabel(1,0,0,0,1) )
 			add_atomic_vertex!(G, tolabel(1,0,0,1,2) )
 			add_atomic_vertex!(G, tolabel(1,0,0,3,3) )
@@ -100,7 +118,9 @@ function test_cases()
 
 
 		@testset "two_node_mincut!" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			u = tolabel(1,0,0,0,1)
 			v = tolabel(1,0,0,0,2)
 
@@ -120,7 +140,9 @@ function test_cases()
 
 
 		@testset "triangle_mincut!" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			u = tolabel(1,0,0,0,1)
 			v = tolabel(1,0,0,0,2)
 			w = tolabel(1,0,0,0,3)
@@ -141,7 +163,9 @@ function test_cases()
 		end
 
 		@testset "chunk_mincut!" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			u = tolabel(1,0,0,0,1)
 			v = tolabel(1,0,0,0,2)
 			w = tolabel(1,0,0,1,3)
@@ -162,7 +186,9 @@ function test_cases()
 		end
 
 		@testset "affinity_mincut!" begin
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			source = tolabel(1,0,0,0,1)
 			a1 = tolabel(1,0,0,0,2)
 			a2 = tolabel(1,0,0,0,3)
@@ -197,7 +223,9 @@ function test_cases()
 
 		@testset "multi_split" begin
 			# Two triangles connected over a small bridge (x1-x2)
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			a1 = tolabel(1,0,0,0,1)
 			a2 = tolabel(1,0,0,0,2)
 			x1 = tolabel(1,0,0,0,3)
@@ -242,7 +270,9 @@ function test_cases()
 			*   / |  \   / |  \   / |  \   / |  \   / |  \   / |  \   / |  \   / |  \   / |  \
 			*  14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40
 			=#
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			v = map(x->tolabel(1,0,0,0,x), 1:40)
 			for vertex in v
 				add_atomic_vertex!(G, vertex)
@@ -270,8 +300,9 @@ function test_cases()
 			but for now, we will make sure we won't split 
 			supervoxels with same seg id
 			=#
-
-			G = ChunkedGraph("/tmp/graph")
+			run(`rm -rf /tmp/graph`)
+			mkdir("/tmp/graph")
+			G = ChunkedGraph("/tmp/graph", settings)
 			u = tolabel(1,0,0,0,1)
 			v = tolabel(1,0,0,1,1)
 			add_atomic_vertex!(G, u )

@@ -1,4 +1,5 @@
 using DataStructures
+import JSON
 
 const Label            = UInt64
 const Affinity         = Float32
@@ -15,6 +16,17 @@ const EMPTY_LABEL_LIST = Vector{Label}()
 # TODO: level, x, y, z are currently fixed to 8 bit, respectively. Should be adjustable.
 const low_mask_8       = UInt32(0x000000FF)
 const low_mask_32      = UInt64(0x00000000FFFFFFFF)
+
+mutable struct ChunkedGraph{C} # {C} is necessary until Julia supports forward declaration of Chunk
+	chunks::Dict{ChunkID, C}
+	lastused::PriorityQueue{ChunkID, Float64}
+	path::AbstractString
+	MAX_DEPTH::Int8
+	TOP_ID::ChunkID
+	SECOND_ID::ChunkID
+	CHUNKSIZE::Tuple{Int,Int,Int}
+	CACHESIZE::Int
+end
 
 @inline function tolabel(chk::ChunkID, seg::SegmentID)
 	return Label(seg) | (Label(chk) << 32)
@@ -57,9 +69,9 @@ end
 end
 
 "Creates a bounding box as `Tuple{UnitRange{Int}, UnitRange{Int}, UnitRange{Int}}`. Coordinates are *chunk* coordinates."
-function tocuboid(chk::ChunkID)
+function tocuboid(cgraph::ChunkedGraph, chk::ChunkID)
 	@assert tolevel(chk) >= 1
-	if chk === TOP_ID || chk === SECOND_ID
+	if chk === cgraph.TOP_ID || chk === cgraph.SECOND_ID
 		return (typemin(Int):typemax(Int), typemin(Int):typemax(Int), typemin(Int):typemax(Int))::Cuboid
 	else
 		mult = 2^(tolevel(chk) - 1)
@@ -95,16 +107,16 @@ end
 	@inbounds return overlaps(c1[1], c2[1]) && overlaps(c1[2], c2[2]) && overlaps(c1[3], c2[3])
 end
 
-@inline function isroot(chunkid::ChunkID)
-	return chunkid === TOP_ID
+@inline function isroot(cgraph::ChunkedGraph, chunkid::ChunkID)
+	return chunkid === cgraph.TOP_ID
 end
 
 "Calculates the parent's ChunkID for a given chunk ID"
-function parent(chunkid::ChunkID)
-	if tolevel(chunkid) >= MAX_DEPTH
-		return TOP_ID
-	elseif tolevel(chunkid) == MAX_DEPTH - 1
-		return SECOND_ID
+function parent(cgraph::ChunkedGraph, chunkid::ChunkID)
+	if tolevel(chunkid) >= cgraph.MAX_DEPTH
+		return cgraph.TOP_ID
+	elseif tolevel(chunkid) == cgraph.MAX_DEPTH - 1
+		return cgraph.SECOND_ID
 	else
 		x, y, z = topos(chunkid)
 		return tochunkid(tolevel(chunkid) + 1, fld(x, 2), fld(y, 2), fld(z, 2))
@@ -112,13 +124,13 @@ function parent(chunkid::ChunkID)
 end
 
 "Calculates the last/lowes common ancestor's ChunkID for two given chunk IDs"
-function lca(chunkid1::ChunkID, chunkid2::ChunkID)
+function lca(cgraph::ChunkedGraph, chunkid1::ChunkID, chunkid2::ChunkID)
 	# TODO: Ensure chunks are on same level
 	@assert tolevel(chunkid1) === tolevel(chunkid2)
 	if chunkid1 === chunkid2
 		return chunkid1
 	else
-		return lca(parent(chunkid1), parent(chunkid2))
+		return lca(cgraph, parent(cgraph, chunkid1), parent(cgraph, chunkid2))
 	end
 end
 
@@ -128,31 +140,62 @@ function stringify(chunkid::ChunkID)
 	return String("$(tolevel(chunkid))_$(x)_$(y)_$(z)")
 end
 
-@inline function world_to_chunk(x::Integer, y::Integer, z::Integer)
-	return tochunkid(1, fld(x, CHUNK_SIZE[1]), fld(y, CHUNK_SIZE[2]), fld(z, CHUNK_SIZE[3]))
+@inline function world_to_chunkid(cgraph::ChunkedGraph, pos::Tuple{Integer,Integer,Integer})
+	return tochunkid(1, fld.(pos, cgraph.CHUNKSIZE)...)
 end
 
+@inline function world_to_chunkid(chunksize::Tuple{Integer,Integer,Integer}, pos::Tuple{Integer,Integer,Integer})
+	return tochunkid(1, fld.(pos, chunksize)...)
+end
 
-const MAX_DEPTH        = 8
-const TOP_ID           = tochunkid(MAX_DEPTH + 1, 0, 0, 0)
-const SECOND_ID        = tochunkid(MAX_DEPTH, 0, 0, 0)
-
-const CHUNK_SIZE       = (512, 512, 64)
-
-const CACHESIZE = 40000
 eviction_mode = false #TODO: fix this
 
-mutable struct ChunkedGraph{C} # {C} is necessary until Julia supports forward declaration of Chunk
-	chunks::Dict{ChunkID, C}
-	lastused::PriorityQueue{ChunkID, Float64}
-	path::AbstractString
-end
+function ChunkedGraph(graphpath::AbstractString, settings::Dict{String,Any})
+	@assert isdir(graphpath) && isempty(readdir(graphpath))
+	@assert settings["maxdepth"] isa Integer && settings["maxdepth"] > 0
+	@assert length(settings["chunksize"]) == 3 &&
+			all(isa.(settings["chunksize"], Integer)) &&
+			all(settings["chunksize"] .> 0)
+	@assert settings["cachesize"] isa Integer && settings["cachesize"] > 0
+	write("$graphpath/graph.conf", JSON.json(settings))
 
-function ChunkedGraph(graphpath::AbstractString)
-	@assert isdir(graphpath)
+	maxdepth = settings["maxdepth"]
+	chunksize = (settings["chunksize"]...)
+	cachesize = settings["cachesize"]
+	
 	return ChunkedGraph{Chunk}(
 		Dict{ChunkID, Chunk}(),
 		PriorityQueue{ChunkID, Float64}(),
-		graphpath
+		graphpath,
+		maxdepth,
+		tochunkid(maxdepth + 1, 0, 0, 0),
+		tochunkid(maxdepth, 0, 0, 0),
+		chunksize,
+		cachesize
+	)
+end
+
+function ChunkedGraph(graphpath::AbstractString)
+	@assert isdir(graphpath) && isfile("$graphpath/graph.conf")
+	settings = JSON.parsefile("$graphpath/graph.conf")
+
+	@assert settings["maxdepth"] isa Integer && settings["maxdepth"] > 0
+	@assert length(settings["chunksize"]) == 3 &&
+			all(isa.(settings["chunksize"], Integer)) &&
+			all(settings["chunksize"] .> 0)
+	@assert settings["cachesize"] isa Integer && settings["cachesize"] > 0
+
+	maxdepth = settings["maxdepth"]
+	chunksize = (settings["chunksize"]...)
+	cachesize = settings["cachesize"]
+	return ChunkedGraph{Chunk}(
+		Dict{ChunkID, Chunk}(),
+		PriorityQueue{ChunkID, Float64}(),
+		graphpath,
+		maxdepth,
+		tochunkid(maxdepth + 1, 0, 0, 0),
+		tochunkid(maxdepth, 0, 0, 0),
+		chunksize,
+		cachesize
 	)
 end
