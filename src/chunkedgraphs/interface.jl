@@ -1,3 +1,18 @@
+function children(cgraph::ChunkedGraph, vertices::Vector{Vertex})
+	reqlength = mapreduce(v -> length(v.children), +, 0, vertices)
+	if reqlength == 0
+		return Label[]
+	end
+	
+	vertexlabels = Vector{Label}(reqlength)
+	i = 1
+	for v in vertices
+		vertexlabels[i : i + length(v.children) - 1] = v.children
+		i += length(v.children)
+	end
+	return vertexlabels
+end
+
 function leaves!(cgraph::ChunkedGraph, vertex::Vertex, stop_lvl::Integer = 1, bbox::Union{Cuboid, Void} = nothing)
 	@assert tolevel(tochunkid(vertex)) >= stop_lvl
 
@@ -5,20 +20,17 @@ function leaves!(cgraph::ChunkedGraph, vertex::Vertex, stop_lvl::Integer = 1, bb
 		return [vertex.label]
 	end
 
-	gc_enable(false)
 	vertices = [vertex]
 	lvl = tolevel(tochunkid(vertex))
 	while lvl > stop_lvl + 1
-		vertices = map(lbl->getvertex!(cgraph, lbl), mapreduce(v->v.children, vcat, Label[], vertices))
+		vertexlabels = children(cgraph, vertices)
 		if bbox !== nothing
-			filter!(v->overlaps(tocuboid(cgraph, tochunkid(v)), bbox::Cuboid), vertices)
+			filter!(v -> overlaps(tocuboid(cgraph, tochunkid(v)), bbox::Cuboid), vertexlabels)
 		end
+		vertices = map(lbl -> getvertex!(cgraph, lbl), vertexlabels)
 		lvl -= 1
 	end
-	ret = mapreduce(v->v.children, vcat, Label[], vertices)
-
-	gc_enable(true)
-	return ret
+	return children(cgraph, vertices)
 end
 
 function promote!(cgraph::ChunkedGraph, vertex::Vertex)
