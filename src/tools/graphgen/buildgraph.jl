@@ -6,33 +6,15 @@ using CloudVolume
 import PyCall
 import JSON
 
-rel(p::String) = joinpath(dirname(@__FILE__), p)
 settings = JSON.parsefile("graph.conf")
 
-# Ensure graph directory exists and is empty
-if !isdir(settings["graphpath"])
-	mkdir(settings["graphpath"])
-end
-# if !isempty(readdir(settings["graphpath"]))
-# 	error("'$(settings["graphpath"])' is not empty!")
-# end
-
-# Init Cloud Storage and Chunked Graph
-edgetasks = StorageWrapper(settings["edgetasks"])
-graph = ChunkedGraph(settings["graphpath"])
-
-# Build Graph
-
-# Phase 1
-ranges = ([settings["offset"][i] : settings["step"][i] : settings["offset"][i] + settings["size"][i] - 1 for i in 1:3]...)
-total = length(ranges[1]) * length(ranges[2]) * length(ranges[3])
-
-@time begin
+function buildgraphbase!(graph::ChunkedGraph, edgetasks::StorageWrapper, ranges::Tuple{StepRange,StepRange,StepRange})
+	total = length(ranges[1]) * length(ranges[2]) * length(ranges[3])
 	i = 0
 	for z in ranges[3], y in ranges[2], x in ranges[1]
 		i += 1
-		chunkid = ChunkedGraphs.world_to_chunk(x, y, z)
-		prefix = "$(x)-$(x + settings["step"][1])_$(y)-$(y + settings["step"][2])_$(z)-$(z + settings["step"][3])"
+		chunkid = ChunkedGraphs.world_to_chunkid(graph, (x, y, z))
+		prefix = "$(x)-$(x + step(ranges[1]))_$(y)-$(y + step(ranges[2]))_$(z)-$(z + step(ranges[3]))"
 		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
 		atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
 
@@ -40,7 +22,6 @@ total = length(ranges[1]) * length(ranges[2]) * length(ranges[3])
 		rg2cg = Dict{UInt64, Label}(reinterpret(Pair{UInt64, Label}, Vector{UInt8}(rg2cg)))
 		cg2rg = map(reverse, rg2cg)
 		write("$(settings["graphpath"])/cg2rg_$(ChunkedGraphs.stringify(chunkid)).bin", collect(cg2rg))
-
 		println("$i/$total | $prefix: Adding $(length(rg2cg)) vertices and $(length(atomicedges)) edges")
 
 		add_atomic_vertices!(graph, collect(values(rg2cg)))
@@ -51,48 +32,67 @@ total = length(ranges[1]) * length(ranges[2]) * length(ranges[3])
 	save!(graph)
 end
 
-# Phase 2
-ranges = ([settings["offset"][i] : settings["step"][i] : settings["offset"][i] + settings["size"][i] - 1 for i in 1:3]...)
-newstep = 2 * settings["step"]
-newstart = newstep .* cld.(settings["offset"], newstep) .+ settings["step"] - 1
-interchunk_ranges = ([newstart[i] : newstep[i] : settings["offset"][i] + settings["size"][i] for i in 1:3]...)
+function buildgraphlayer!(graph::ChunkedGraph, edgetasks::StorageWrapper, ranges::Tuple{StepRange,StepRange,StepRange},
+			interchunk_ranges::Tuple{StepRange,StepRange,StepRange})
+	total = length(interchunk_ranges[1]) * length(ranges[2]) * length(ranges[3]) + 
+			length(ranges[1]) * length(interchunk_ranges[2]) * length(ranges[3]) + 
+			length(ranges[1]) * length(ranges[2]) * length(interchunk_ranges[3])
 
-total = length(interchunk_ranges[1]) * length(ranges[2]) * length(ranges[3]) + 
-		length(ranges[1]) * length(interchunk_ranges[2]) * length(ranges[3]) + 
-		length(ranges[1]) * length(ranges[2]) * length(interchunk_ranges[3])
+	@time begin
+		i = 0
+		for z in ranges[3], y in ranges[2], x in interchunk_ranges[1]
+			i += 1
+			prefix = "$(x)-$(x + 2)_$(y)-$(y + step(ranges[2]))_$(z)-$(z + step(ranges[3]))"
+			atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
+			atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
+			println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
+			add_atomic_edges!(graph, atomicedges)
+		end
+		for z in ranges[3], y in interchunk_ranges[2], x in ranges[1]
+			i += 1
+			prefix = "$(x)-$(x + step(ranges[1]))_$(y)-$(y + 2)_$(z)-$(z + step(ranges[3]))"
+			atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
+			atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
+			println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
+			add_atomic_edges!(graph, atomicedges)
+		end
+		for z in interchunk_ranges[3], y in ranges[2], x in ranges[1]
+			i += 1
+			prefix = "$(x)-$(x + step(ranges[1]))_$(y)-$(y + step(ranges[2]))_$(z)-$(z + 2)"
+			atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
+			atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
+			println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
+			add_atomic_edges!(graph, atomicedges)
+		end
 
-@time begin
-	i = 0
-	for z in ranges[3], y in ranges[2], x in interchunk_ranges[1]
-		i += 1
-		prefix = "$(x)-$(x + 2)_$(y)-$(y + settings["step"][2])_$(z)-$(z + settings["step"][3])"
-		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
-		atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
-
-		println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
-		add_atomic_edges!(graph, atomicedges)
+		update!(graph)
+		save!(graph)
 	end
-	for z in ranges[3], y in interchunk_ranges[2], x in ranges[1]
-		i += 1
-		prefix = "$(x)-$(x + settings["step"][1])_$(y)-$(y + 2)_$(z)-$(z + settings["step"][3])"
-		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
-		atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
+end
 
-		println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
-		add_atomic_edges!(graph, atomicedges)
-	end
-	for z in interchunk_ranges[3], y in ranges[2], x in ranges[1]
-		i += 1
-		prefix = "$(x)-$(x + settings["step"][1])_$(y)-$(y + settings["step"][2])_$(z)-$(z + 2)"
-		atomicedges = edgetasks.val[:get_file]("$(prefix)_atomicedges.bin")
-		atomicedges = Vector{AtomicEdge}(reinterpret(AtomicEdge, Vector{UInt8}(atomicedges)))
-
-		println("$i/$total | $prefix: Adding $(length(atomicedges)) edges")
-		add_atomic_edges!(graph, atomicedges)
+function buildgraph(settings::Dict{String,Any})
+	# Ensure graph directory exists
+	if !isdir(settings["graphpath"])
+		mkdir(settings["graphpath"])
 	end
 
-	update!(graph)
-	save!(graph)
+	# Init Cloud Storage and Chunked Graph
+	graph = ChunkedGraph(settings["graphpath"], settings)
+	edgetasks = StorageWrapper(settings["edgetasks"])
+
+	ranges = ([settings["offset"][i] : settings["chunksize"][i] : settings["offset"][i] + settings["size"][i] - 1 for i in 1:3]...)
+
+	# Build Base Layer
+	buildgraphbase!(graph, edgetasks, ranges)
+
+	newstep = settings["chunksize"]
+	iterations = Int(ceil(log2(maximum(cld.(settings["offset"] .+ settings["size"], settings["chunksize"])))))
+	for j = 1:iterations
+		newstep = 2 * newstep
+		newstart = @. newstep * cld(settings["offset"], newstep) + div(newstep, 2) - 1
+		interchunk_ranges = ([newstart[i] : newstep[i] : settings["offset"][i] + settings["size"][i] for i in 1:3]...)
+		buildgraphlayer!(graph, edgetasks, ranges, interchunk_ranges)
+	end
 end
 
 function nextmult(n::Integer, m::Integer)

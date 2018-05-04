@@ -1,0 +1,9 @@
+{
+  "offset": [0, 0, 0],
+  "size": [4096, 4096, 180],
+  "maxdepth": 8,
+  "chunksize": [512, 512, 64],
+  "cachesize": 1000,
+  "graphpath": "/mnt/d/dev/graphs/basil_automated2",
+  "edgetasks": "gs://nkem/basil_4k_oldnet/region_graph"
+}
