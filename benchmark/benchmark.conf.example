@@ -1,0 +1,4 @@
+{
+  "graphpath": "/mnt/d/dev/graphs/basil_automated",
+  "cloudpath": "gs://neuroglancer/ranl/basil_4k_oldnet/ws"
+}
