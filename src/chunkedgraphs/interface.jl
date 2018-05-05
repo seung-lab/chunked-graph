@@ -87,7 +87,7 @@ function update!(cgraph::ChunkedGraph)
 end
 
 function add_atomic_vertex!(cgraph::ChunkedGraph, lbl::Label)
-	@assert tolevel(tochunkid(lbl)) == 1 "Vertex label at level $(tolevel(tochunkid(label))), expected 1."
+	@assert tolevel(tochunkid(lbl)) == 1 "Vertex label at level $(tolevel(tochunkid(lbl))), expected 1."
 
 	c = getchunk!(cgraph, tochunkid(lbl))
 	if haskey(c.vertices, lbl)
@@ -101,11 +101,17 @@ function add_atomic_vertex!(cgraph::ChunkedGraph, lbl::Label)
 end
 
 function add_atomic_vertices!(cgraph::ChunkedGraph, lbls::Vector{Label})
-	gc_enable(false)
-	for lbl in lbls
+	oldgc = gc_enable(false)
+	for (i, lbl) in enumerate(lbls)
+		if length(cgraph.chunks) > cgraph.CACHESIZE
+			run_eviction!(cgraph)
+			gc_enable(true)
+			gc()
+			gc_enable(false)
+		end
 		add_atomic_vertex!(cgraph, lbl)
 	end
-	gc_enable(true)
+	gc_enable(oldgc)
 end
 
 function add_atomic_edge!(cgraph::ChunkedGraph, edge::AtomicEdge)
@@ -115,11 +121,17 @@ function add_atomic_edge!(cgraph::ChunkedGraph, edge::AtomicEdge)
 end
 
 function add_atomic_edges!(cgraph::ChunkedGraph, edges::Vector{AtomicEdge})
-	gc_enable(false)
-	for edge in edges
+	oldgc = gc_enable(false)
+	for (i, edge) in enumerate(edges)
+		if length(cgraph.chunks) > cgraph.CACHESIZE
+			run_eviction!(cgraph)
+			gc_enable(true)
+			gc()
+			gc_enable(false)
+		end
 		add_atomic_edge!(cgraph, edge)
 	end
-	gc_enable(true)
+	gc_enable(oldgc)
 end
 
 function delete_atomic_edge!(cgraph::ChunkedGraph, edge::AtomicEdge)

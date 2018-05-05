@@ -19,8 +19,9 @@ const low_mask_32      = UInt64(0x00000000FFFFFFFF)
 
 mutable struct ChunkedGraph{C} # {C} is necessary until Julia supports forward declaration of Chunk
 	chunks::Dict{ChunkID, C}
-	lastused::PriorityQueue{ChunkID, Float64}
+	lastused::PriorityQueue{ChunkID, UInt64, Base.Order.ForwardOrdering}
 	path::AbstractString
+	evictionmode::Bool
 	MAX_DEPTH::Int8
 	TOP_ID::ChunkID
 	SECOND_ID::ChunkID
@@ -123,7 +124,7 @@ function parent(cgraph::ChunkedGraph, chunkid::ChunkID)
 	end
 end
 
-"Calculates the last/lowes common ancestor's ChunkID for two given chunk IDs"
+"Calculates the last/lowest common ancestor's ChunkID for two given chunk IDs"
 function lca(cgraph::ChunkedGraph, chunkid1::ChunkID, chunkid2::ChunkID)
 	# TODO: Ensure chunks are on same level
 	@assert tolevel(chunkid1) === tolevel(chunkid2)
@@ -137,7 +138,7 @@ end
 "Create a string of form 'lvl_x_y_z' for a given ChunkID"
 function stringify(chunkid::ChunkID)
 	x, y, z = topos(chunkid)
-	return String("$(tolevel(chunkid))_$(x)_$(y)_$(z)")
+	return "$(tolevel(chunkid))_$(x)_$(y)_$(z)"
 end
 
 @inline function world_to_chunkid(cgraph::ChunkedGraph, pos::Tuple{Integer,Integer,Integer})
@@ -147,8 +148,6 @@ end
 @inline function world_to_chunkid(chunksize::Tuple{Integer,Integer,Integer}, pos::Tuple{Integer,Integer,Integer})
 	return tochunkid(1, fld.(pos, chunksize)...)
 end
-
-eviction_mode = false #TODO: fix this
 
 function ChunkedGraph(graphpath::AbstractString, settings::Dict{String,Any})
 	@assert isdir(graphpath) && isempty(readdir(graphpath))
@@ -165,8 +164,9 @@ function ChunkedGraph(graphpath::AbstractString, settings::Dict{String,Any})
 	
 	return ChunkedGraph{Chunk}(
 		Dict{ChunkID, Chunk}(),
-		PriorityQueue{ChunkID, Float64}(),
+		PriorityQueue{ChunkID, UInt64}(),
 		graphpath,
+		false,
 		maxdepth,
 		tochunkid(maxdepth + 1, 0, 0, 0),
 		tochunkid(maxdepth, 0, 0, 0),
@@ -190,8 +190,9 @@ function ChunkedGraph(graphpath::AbstractString)
 	cachesize = settings["cachesize"]
 	return ChunkedGraph{Chunk}(
 		Dict{ChunkID, Chunk}(),
-		PriorityQueue{ChunkID, Float64}(),
+		PriorityQueue{ChunkID, UInt64}(),
 		graphpath,
+		false,
 		maxdepth,
 		tochunkid(maxdepth + 1, 0, 0, 0),
 		tochunkid(maxdepth, 0, 0, 0),
