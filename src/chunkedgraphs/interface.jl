@@ -34,21 +34,25 @@ function leaves!(cgraph::ChunkedGraph, vertex::Vertex, stop_lvl::Integer = 1, bb
 end
 
 function promote!(cgraph::ChunkedGraph, vertex::Vertex)
-	c = getchunk!(cgraph, tochunkid(vertex))
+	c = getchunk!(cgraph, parent(cgraph, tochunkid(vertex)))
+	@assert haskey(c.vertices, vertex.label)
 	@assert tolevel(c) < cgraph.MAX_DEPTH
 
 	@assert c.clean
 	@assert vertex.parent == NULL_LABEL
 	@assert length(incident_edges(c.graph, vertex.label)) == 0
 
-	l = uniquelabel!(c.parent)
+	l = uniquelabel!(c)
 	pv = Vertex(l, NULL_LABEL, Label[vertex.label])
 	vertex.parent = pv.label
 
-	@assert tochunkid(pv) == c.parent.id
+	@assert tochunkid(pv) == c.id
 	add_vertex!(c.parent.graph, pv.label)
 	c.parent.vertices[pv.label] = pv
-	c.parent.modified = true
+
+	c.modified = true
+	@assert hasvertex!(cgraph, vertex.parent)
+	@assert tochunkid(vertex.parent) === parent(cgraph, tochunkid(vertex.label))
 
 	return pv
 end
@@ -89,15 +93,14 @@ end
 function add_atomic_vertex!(cgraph::ChunkedGraph, lbl::Label)
 	@assert tolevel(tochunkid(lbl)) == 1 "Vertex label at level $(tolevel(tochunkid(lbl))), expected 1."
 
-	c = getchunk!(cgraph, tochunkid(lbl))
+	c = getchunk!(cgraph, parent(cgraph, tochunkid(lbl)))
 	if haskey(c.vertices, lbl)
 		#TODO: warn user
 		return
 	end
 
 	v = Vertex(lbl, NULL_LABEL, EMPTY_LABEL_LIST)
-	push!(c.added_vertices, v)
-	touch!(c)
+	add_vertex!(c, v)
 end
 
 function add_atomic_vertices!(cgraph::ChunkedGraph, lbls::Vector{Label})
@@ -115,9 +118,12 @@ function add_atomic_vertices!(cgraph::ChunkedGraph, lbls::Vector{Label})
 end
 
 function add_atomic_edge!(cgraph::ChunkedGraph, edge::AtomicEdge)
-	c = getchunk!(cgraph, lca(cgraph, tochunkid(edge.u), tochunkid(edge.v)))
-	push!(c.added_edges, edge)
-	touch!(c)
+	chunkid = lca(cgraph, tochunkid(edge.u), tochunkid(edge.v))
+	if tolevel(chunkid) == 1
+		chunkid = parent(cgraph, chunkid)
+	end
+	c = getchunk!(cgraph, chunkid)
+	add_edge!(c, edge)
 end
 
 function add_atomic_edges!(cgraph::ChunkedGraph, edges::Vector{AtomicEdge})
@@ -135,7 +141,10 @@ function add_atomic_edges!(cgraph::ChunkedGraph, edges::Vector{AtomicEdge})
 end
 
 function delete_atomic_edge!(cgraph::ChunkedGraph, edge::AtomicEdge)
-	c = getchunk!(cgraph, lca(cgraph, tochunkid(edge.u), tochunkid(edge.v)))
-	push!(c.deleted_edges, edge)
-	touch!(c)
+	chunkid = lca(cgraph, tochunkid(edge.u), tochunkid(edge.v))
+	if tolevel(chunkid) == 1
+		chunkid = parent(cgraph, chunkid)
+	end
+	c = getchunk!(cgraph, chunkid)
+	delete_edge!(c, edge)
 end

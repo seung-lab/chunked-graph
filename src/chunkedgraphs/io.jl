@@ -61,7 +61,11 @@ function getchunk!(cgraph::ChunkedGraph, chunkid::ChunkID)
 end
 
 function getvertex!(cgraph::ChunkedGraph, l::Label)
-	return getchunk!(cgraph, tochunkid(l)).vertices[l]
+	return getchunk!(cgraph, parent(cgraph, tochunkid(l))).vertices[l]
+end
+
+function hasvertex!(cgraph::ChunkedGraph, l::Label)
+	return haskey(getchunk!(cgraph, parent(cgraph, tochunkid(l))).vertices, l)
 end
 
 function save!(cgraph::ChunkedGraph, force::Bool = false)

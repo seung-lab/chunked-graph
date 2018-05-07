@@ -31,6 +31,46 @@ function Chunk(cgraph::ChunkedGraph, chunkid::ChunkID)
 	return Chunk(cgraph, chunkid, Dict{Label, Vertex}(), MultiGraph(), Label(0))
 end
 
+@inline function add_vertex!(c::Chunk, v::Vertex)
+	@assert !(v in c.deleted_vertices)
+	@assert parent(c.cgraph, tochunkid(v.label)) == c.id
+	push!(c.added_vertices, v)
+	touch!(c)
+end
+
+@inline function delete_vertex!(c::Chunk, v::Vertex)
+	@assert !(v in c.added_vertices)
+	@assert parent(c.cgraph, tochunkid(v.label)) == c.id
+	push!(c.deleted_vertices, v)
+	touch!(c)
+end
+
+@inline function add_edge!(c::Chunk, e::AtomicEdge)
+	@assert !(e in c.deleted_edges)
+	@assert begin
+		tmp = lca(c.cgraph, tochunkid(e.u), tochunkid(e.v))
+		if tolevel(tmp) == 1
+			tmp = parent(c.cgraph, tmp)
+		end
+		tmp == c.id
+	end
+	push!(c.added_edges, e)
+	touch!(c)
+end
+
+@inline function delete_edge!(c::Chunk, e::AtomicEdge)
+	@assert !(e in c.added_edges)
+	@assert begin
+		tmp = lca(c.cgraph, tochunkid(e.u), tochunkid(e.v))
+		if tolevel(tmp) == 1
+			tmp = parent(c.cgraph, tmp)
+		end
+		tmp == c.id
+	end
+	push!(c.deleted_edges, e)
+	touch!(c)
+end
+
 @inline function tochunkid(c::Chunk)
 	return c.id
 end
@@ -81,6 +121,10 @@ function update!(c::Chunk)
 		update!(child)
 	end
 
+	for child in c.children
+		@assert child.clean
+	end
+
 	# Print debug messages
 	# println("updating $(tolevel(c.id)), $(map(Int,topos(c.id))) V: +$(length(c.added_vertices))/-$(length(c.deleted_vertices)), E: +$(length(c.added_edges))/-$(length(c.deleted_edges))")
 	global n_processed
@@ -97,7 +141,7 @@ function update!(c::Chunk)
 	# Insert added vertices
 	# mark them as dirty_vertices as well
 	for v in c.added_vertices
-		@assert tochunkid(v) == c.id
+		@assert parent(c.cgraph, tochunkid(v)) == c.id
 		@assert v.parent == NULL_LABEL
 		@assert !haskey(c.vertices, v.label)
 		add_vertex!(c.graph, v.label)
@@ -105,7 +149,7 @@ function update!(c::Chunk)
 		push!(dirty_vertices,v)
 	end
 
-	# Delete all vertices and marked the vertices connected to 
+	# Delete all vertices and mark the vertices connected to
 	# the one we are deleting as dirty
 	for v in c.deleted_vertices
 		for e in incident_edges(c.graph, v.label)
@@ -147,28 +191,39 @@ function update!(c::Chunk)
 	if !isroot(c)
 		for v in chain(dirty_vertices, c.deleted_vertices)
 			if v.parent != NULL_LABEL
-				@assert tochunkid(v.parent) == tochunkid(c.parent)
-				push!(c.parent.deleted_vertices, c.parent.vertices[v.parent])
-				
-				v.parent = NULL_LABEL
-			end
-		end
+				@assert tochunkid(v.parent) == tochunkid(c)
+				@assert parent(c.cgraph, tochunkid(v.parent)) == tochunkid(c.parent)
 
-		cc = connected_components(c.graph, map(x->x.label, dirty_vertices))
-		for component in cc
-			if length(component) > 1
-				l = uniquelabel!(c.parent)
-				new_vertex = Vertex(l, NULL_LABEL, component)
-				for child_label in component
-					c.vertices[child_label].parent = new_vertex.label
+				if haskey(c.parent.vertices, v.parent)
+					delete_vertex!(c.parent, c.parent.vertices[v.parent])
 				end
-				push!(c.parent.added_vertices, new_vertex)
-			else
-				c.vertices[component[1]].parent = NULL_LABEL
+
+				v.parent = NULL_LABEL
 			end
 		end
 		c.parent.clean = false
 		c.parent.modified = true
+	end
+
+	cc = connected_components(c.graph, map(x->x.label, dirty_vertices))
+	for component in cc
+		if length(component) > 1
+			l = uniquelabel!(c)
+			new_vertex = Vertex(l, NULL_LABEL, component)
+			for child_label in component
+				c.vertices[child_label].parent = new_vertex.label
+			end
+			if !isroot(c)
+				push!(c.parent.added_vertices, new_vertex)
+			end
+		else
+			c.vertices[component[1]].parent = NULL_LABEL
+		end
+	end
+
+	for v in values(c.vertices)
+		@assert v.parent === NULL_LABEL || tochunkid(v.parent) === c.id
+		@assert parent(c.cgraph, tochunkid(v.label)) === c.id
 	end
 
 	empty!(c.added_edges)

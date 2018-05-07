@@ -61,7 +61,7 @@ end
 function mincut!(cgraph::ChunkedGraph, sources::Vector{Label}, sinks::Vector{Label})
 	bbox = tocuboid(vcat(sources, sinks))
 	root_vertices = common_parent_vertices!(cgraph, vcat(sources, sinks))
-	c = getchunk!(cgraph, tochunkid(root_vertices[1].label))
+	c = getchunk!(cgraph, parent(cgraph, tochunkid(root_vertices[1].label)))
 	atomic_vertices, atomic_edges = induced_subgraph!(cgraph, c, map(r->r.label, root_vertices), bbox)
 
 	# Relabel atomic vertex labels to get a dense matrix for LightGraphs

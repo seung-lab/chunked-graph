@@ -53,6 +53,12 @@ end
 	return SegmentID(lbl & low_mask_32)
 end
 
+"""
+Level 1 indicates an atomic vertex. Level 2+ indicates an aggregate vertex.
+Note that Level 1 chunks and Level 2 chunks are the SAME size. A level n vertex
+can be completely contained in a level n chunk. It lives inside a
+level n+1 chunk, where it may be connected by edges to other level n vertices.
+"""
 @inline function tolevel(chk::ChunkID)
 	return UInt8(chk >> 24)
 end
@@ -114,10 +120,13 @@ end
 
 "Calculates the parent's ChunkID for a given chunk ID"
 function parent(cgraph::ChunkedGraph, chunkid::ChunkID)
-	if tolevel(chunkid) >= cgraph.MAX_DEPTH
+	if tolevel(chunkid) >= cgraph.MAX_DEPTH - 1
 		return cgraph.TOP_ID
-	elseif tolevel(chunkid) == cgraph.MAX_DEPTH - 1
-		return cgraph.SECOND_ID
+	# elseif tolevel(chunkid) == cgraph.MAX_DEPTH - 2
+	# 	return cgraph.SECOND_ID
+	elseif tolevel(chunkid) == 1
+		x, y, z = topos(chunkid)
+		return tochunkid(2, x, y, z)
 	else
 		x, y, z = topos(chunkid)
 		return tochunkid(tolevel(chunkid) + 1, fld(x, 2), fld(y, 2), fld(z, 2))
