@@ -61,6 +61,10 @@ function touch!(c::Chunk)
 	end
 end
 
+function gentletouch!(c::Chunk)
+	c.cgraph.lastused[c.id] = time_ns()
+end
+
 function uniquelabel!(c::Chunk)
 	#TODO: Should erase clean flag?
 	c.max_label += 1
@@ -104,10 +108,6 @@ function update!(c::Chunk)
 	# Delete all vertices and marked the vertices connected to 
 	# the one we are deleting as dirty
 	for v in c.deleted_vertices
-		# for child in v.children
-		#	@assert get_vertex(c.cgraph,child).parent==NULL_LABEL
-		# end
-
 		for e in incident_edges(c.graph, v.label)
 			if !in(e.u, c.deleted_vertices) || !in(e.v, c.deleted_vertices)
 				push!(c.added_edges, e)
@@ -149,6 +149,7 @@ function update!(c::Chunk)
 			if v.parent != NULL_LABEL
 				@assert tochunkid(v.parent) == tochunkid(c.parent)
 				push!(c.parent.deleted_vertices, c.parent.vertices[v.parent])
+				
 				v.parent = NULL_LABEL
 			end
 		end
@@ -167,6 +168,7 @@ function update!(c::Chunk)
 			end
 		end
 		c.parent.clean = false
+		c.parent.modified = true
 	end
 
 	empty!(c.added_edges)

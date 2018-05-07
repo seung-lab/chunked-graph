@@ -1,6 +1,6 @@
 import Base: show
 
-show(io::IO, cgraph::ChunkedGraph) = print("ChunkedGraph with $(length(cgraph.chunks)) in memory")
+show(io::IO, cgraph::ChunkedGraph) = print("ChunkedGraph with $(length(cgraph.chunks)) chunks in memory")
 
 function loadchunk(cgraph::ChunkedGraph, chunkid::ChunkID)
 	vertex_map = Dict{Label, Vertex}()
@@ -13,6 +13,7 @@ function loadchunk(cgraph::ChunkedGraph, chunkid::ChunkID)
 		return Chunk(cgraph, chunkid, vertex_map, mgraph, max_label)
 	end
 
+	print("Loading from $path...")
 	f = open(path, "r")
 
 	# Check File Version
@@ -42,34 +43,19 @@ function loadchunk(cgraph::ChunkedGraph, chunkid::ChunkID)
 	end
 
 	close(f)
+	println("done.")
 	return Chunk(cgraph, chunkid, vertex_map, mgraph, max_label)
 end
 
 function getchunk!(cgraph::ChunkedGraph, chunkid::ChunkID)
-	global eviction_mode
 	if !haskey(cgraph.chunks, chunkid)
-		tmp = loadchunk(cgraph, chunkid)
-		if tmp == nothing
-			tmp = Chunk(cgraph, chunkid)
-		end
-		cgraph.chunks[chunkid] = tmp::Chunk
+		cgraph.chunks[chunkid] = loadchunk(cgraph, chunkid)
+		cgraph.lastused[chunkid] = 0
 	end
 
-	c = cgraph.chunks[chunkid]
-	if !eviction_mode
-		if tolevel(c) == 1
-			cgraph.lastused[c.id] = time()
-		end
-		
-		eviction_mode = true
-		while length(cgraph.chunks) > cgraph.CACHESIZE
-			evict!(cgraph.chunks[DataStructures.peek(cgraph.lastused)[1]])
-		end
-		eviction_mode = false
-	else
-		if tolevel(c) == 1 && !haskey(cgraph.lastused, c.id)
-			cgraph.lastused[c.id] = time()
-		end
+	c = cgraph.chunks[chunkid]::Chunk
+	if cgraph.evictionmode === false
+		gentletouch!(c)
 	end
 	return c
 end
@@ -122,10 +108,30 @@ function save!(c::Chunk)
 	c.modified = false
 end
 
+function run_eviction!(cgraph::ChunkedGraph)
+	cgraph.evictionmode = true
+	while length(cgraph.chunks) > div(cgraph.CACHESIZE, 2)
+		convict, priority = DataStructures.peek(cgraph.lastused)
+		children = cgraph.chunks[convict].children
+		if length(children) > 0
+			# Spare him, kill the children first
+			# He'll be put back on death row when his children die
+			dequeue!(cgraph.lastused, convict)
+			continue
+		else
+			c = cgraph.chunks[convict]
+			@assert !isroot(c)
+			@assert c.id != c.cgraph.SECOND_ID
+
+			# Make sure all queued vertices of parent chunk have been generated.
+			update!(c.parent)
+			evict!(cgraph.chunks[convict])
+		end
+	end
+	cgraph.evictionmode = false
+end
+
 function evict!(c::Chunk)
-	@assert !isroot(c)
-	@assert c.id != c.cgraph.SECOND_ID
-	update!(c)
 	while !isempty(c.children)
 		evict!(c.children[end])
 	end
@@ -136,5 +142,11 @@ function evict!(c::Chunk)
 
 	filter!(x->x != c, c.parent.children)
 	delete!(c.cgraph.chunks, c.id)
+
+	priority = c.cgraph.lastused[c.id]
 	dequeue!(c.cgraph.lastused, c.id)
+
+	if length(c.parent.children) === 0 && !haskey(c.cgraph.lastused, c.parent.id)
+		c.cgraph.lastused[c.parent.id] = priority + 1
+	end
 end
