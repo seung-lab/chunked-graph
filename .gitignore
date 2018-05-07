@@ -1,6 +1,6 @@
-*.jl.cov
+*.jl.*.cov
 *.jl.mem
 
-server.conf
+*.conf
 keys/
 logs/
