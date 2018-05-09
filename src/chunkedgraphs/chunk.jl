@@ -8,8 +8,8 @@ mutable struct Chunk
 	vertices::Dict{Label, Vertex}
 	parent::Union{Chunk, Void}
 	children::Vector{Chunk}
-	added_vertices::Set{Vertex}
-	deleted_vertices::Set{Vertex}
+	added_vertices::Dict{Label,Vertex}
+	deleted_vertices::Dict{Label,Vertex}
 	added_edges::Set{AtomicEdge}
 	deleted_edges::Set{AtomicEdge}
 	clean::Bool
@@ -24,7 +24,7 @@ mutable struct Chunk
 		fl = FileLock(expanduser(joinpath(cgraph.path, String("$(prefix).lock"))))
 		lock(fl)
 
-		c = new(cgraph, chunkid, graph, vertices, nothing, Chunk[], Set{Vertex}(), Set{Vertex}(), Set{AtomicEdge}(), Set{AtomicEdge}(), true, false, max_label, fl)
+		c = new(cgraph, chunkid, graph, vertices, nothing, Chunk[], Dict{Label,Vertex}(), Dict{Label,Vertex}(), Set{AtomicEdge}(), Set{AtomicEdge}(), true, false, max_label, fl)
 
 		if !isroot(chunkid)
 			par = parent!(c)
@@ -36,15 +36,27 @@ mutable struct Chunk
 end
 
 @inline function add_vertex!(c::Chunk, v::Vertex)
-	@assert !(v in c.deleted_vertices)
+	@assert !(v.label in keys(c.deleted_vertices))
 	@assert parent(tochunkid(v.label)) == c.id
-	push!(c.added_vertices, v)
+	c.added_vertices[v.label] = v
 	touch!(c)
 end
 @inline function delete_vertex!(c::Chunk, v::Vertex)
-	@assert !(v in c.added_vertices)
+	@assert haskey(c.vertices,v)
 	@assert parent(tochunkid(v.label)) == c.id
-	push!(c.deleted_vertices, v)
+	c.deleted_vertices[v.label] = v
+	touch!(c)
+end
+@inline function delete_vertex!(c::Chunk, l::Label)
+	if haskey(c.vertices,l)
+		v=c.vertices[l]::Vertex
+	elseif haskey(c.added_vertices,l)
+		v=c.added_vertices[l]::Vertex
+	else
+		@assert false
+	end
+	@assert parent(tochunkid(v.label)) == c.id
+	c.deleted_vertices[l] = v
 	touch!(c)
 end
 @inline function add_edge!(c::Chunk, e::AtomicEdge)
@@ -144,7 +156,7 @@ function update!(c::Chunk)
 
 	# Insert added vertices
 	# mark them as dirty_vertices as well
-	for v in c.added_vertices
+	for (l,v) in c.added_vertices
 		@assert parent(tochunkid(v)) == c.id
 		@assert v.parent == NULL_LABEL
 		@assert !haskey(c.vertices, v.label)
@@ -155,7 +167,7 @@ function update!(c::Chunk)
 
 	# Delete vertices and mark the vertices connected to 
 	# the one we are deleting as dirty
-	for v in c.deleted_vertices
+	for (l,v) in c.deleted_vertices
 		# for child in v.children
 		# 	@assert get_vertex(c.cgraph, child).parent === NULL_LABEL
 		# end
@@ -215,19 +227,15 @@ function update!(c::Chunk)
 			if v.parent != NULL_LABEL
 				@assert tochunkid(v.parent) == tochunkid(c)
 				@assert parent(tochunkid(v.parent)) == tochunkid(c.parent)
-				if haskey(c.parent.vertices, v.parent)
-					delete_vertex!(c.parent, c.parent.vertices[v.parent])
-				end
+				delete_vertex!(c.parent, v.parent)
 				v.parent = NULL_LABEL
 			end
 		end
-		for v in c.deleted_vertices
+		for (l,v) in c.deleted_vertices
 			if v.parent != NULL_LABEL
 				@assert tochunkid(v.parent) == tochunkid(c)
 				@assert parent(tochunkid(v.parent)) == tochunkid(c.parent)
-				if haskey(c.parent.vertices, v.parent)
-					delete_vertex!(c.parent, c.parent.vertices[v.parent])
-				end
+				delete_vertex!(c.parent, v.parent)
 				v.parent = NULL_LABEL
 			end
 		end
@@ -243,7 +251,7 @@ function update!(c::Chunk)
 				c.vertices[child_label].parent = new_vertex.label
 			end
 			if !isroot(c)
-				push!(c.parent.added_vertices, new_vertex)
+				add_vertex!(c.parent, new_vertex)
 			end
 		else
 			c.vertices[component[1]].parent = NULL_LABEL
