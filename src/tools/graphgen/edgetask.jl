@@ -10,7 +10,7 @@ using OffsetArrays
 
 import PyCall
 
-const RG_CHUNKSIZE = (1024, 1024, 256) #(512, 512, 512)
+const RG_CHUNKSIZE = (1024, 1024, 1024)
 const CG_CHUNKSIZE = (512, 512, 64)
 const mysql_conn = MySQL.connect("127.0.0.1", "root", readline("/secrets/mysql"); db="relabeling")
 
@@ -278,7 +278,7 @@ function get_chunkhierarchy_affinities(regiongraph::RegionGraphWrapper, slices::
 	sizehint!(edges, 1000000)
 	for l in 0:regiongraph.maxlevel
 		for x in chunk_range[1][1]:chunk_range[2][1], y in chunk_range[1][2]:chunk_range[2][2], z in chunk_range[1][3]:chunk_range[2][3]
-			chunk_path = "edges_$(l)_$(x)_$(y)_$(z).data.zst" #"complete_edges_$(l)_$(x)_$(y)_$(z).data.zst"
+			chunk_path = "complete_edges_$(l)_$(x)_$(y)_$(z).data.zst"
 			append!(edges, get_chunk_affinities(regiongraph.storage, chunk_path))
 		end
 		chunk_range = (div.(first(chunk_range), 2), div.(last(chunk_range), 2))
@@ -354,13 +354,13 @@ function edge_task_bundle(watershed_path::AbstractString, agglomeration_path::Ab
 	end
 end
 
-# watershed_path, agglomeration_path, regiongraph_path, output_path, slice_str = ARGS
+watershed_path, agglomeration_path, regiongraph_path, output_path, slice_str = ARGS
 
-watershed_path = "gs://neuroglancer/ranl/basil_4k_oldnet/ws" #"gs://neuroglancer/ranl/pinky40_watershed_test"
-agglomeration_path = "gs://neuroglancer/ranl/basil_4k_oldnet/seg_25" #"gs://neuroglancer/ranl/pinky40_agglomeration_test"
-regiongraph_path = "gs://ranl/test_agglomeration_basil_4k_oldnet/region_graph" #"gs://ranl/pinky40_agglomeration_test/region_graph"
-output_path = "gs://nkem/basil_4k_oldnet/region_graph" #"gs://nkem/pinky40_agglomeration_test/region_graph"
+# watershed_path = "gs://neuroglancer/ranl/basil_4k_oldnet/ws" #"gs://neuroglancer/ranl/pinky40_watershed_test"
+# agglomeration_path = "gs://neuroglancer/ranl/basil_4k_oldnet/seg_25" #"gs://neuroglancer/ranl/pinky40_agglomeration_test"
+# regiongraph_path = "gs://ranl/test_agglomeration_basil_4k_oldnet/region_graph" #"gs://ranl/pinky40_agglomeration_test/region_graph"
+# output_path = "gs://nkem/basil_4k_oldnet/region_graph" #"gs://nkem/pinky40_agglomeration_test/region_graph"
 
-slice_str = "0-4097_0-4097_0-181" #"10240-11265_7680-8705_0-1025"
+# slice_str = "0-4097_0-4097_0-181" #"10240-11265_7680-8705_0-1025"
 
 edge_task_bundle(watershed_path, agglomeration_path, regiongraph_path, output_path, toslice(slice_str))
