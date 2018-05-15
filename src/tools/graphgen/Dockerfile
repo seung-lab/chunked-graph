@@ -40,6 +40,7 @@ RUN set -ex \
 	&& julia -e "Pkg.add(\"DataFrames\"); using DataFrames" \
 	&& julia -e "Pkg.add(\"Memoize\"); using Memoize" \
 	&& julia -e "Pkg.add(\"NamedTuples\"); using NamedTuples" \
+	&& julia -e "Pkg.add(\"Retry\"); using Retry" \
 	&& echo "Skipping julia -e \"Pkg.add(\"MySQL\"); using MySQL\"" \
 	&& julia -e "Pkg.add(\"OffsetArrays\"); using OffsetArrays" \
 	\
