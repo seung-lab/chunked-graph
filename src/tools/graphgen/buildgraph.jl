@@ -1,4 +1,4 @@
-addprocs(50)
+addprocs(32)
 @everywhere include("../../chunkedgraphs/ChunkedGraphs.jl")
 @everywhere using ChunkedGraphs
 @everywhere using CloudVolume
@@ -52,7 +52,7 @@ end
 			length(ranges[1]) * length(interchunk_ranges[2]) * length(ranges[3]) + 
 			length(ranges[1]) * length(ranges[2]) * length(interchunk_ranges[3])
 
-	println("Building Subgraph using range: $ranges")
+	println("Building Subgraph using ranges: $ranges and $interchunk_ranges")
 	@time begin
 		i = 0
 		for z in ranges[3], y in ranges[2], x in interchunk_ranges[1]
@@ -122,20 +122,20 @@ end
 	buildgraphbase!(settings, graph, edgetasks, ranges)
 
 	newstep = settings["chunksize"]
-	iterations = settings["maxdepth"] - 2 #Int(ceil(log2(maximum(cld.(settings["offset"] .+ settings["size"], settings["chunksize"])))))
+	iterations = 3 #Int(ceil(log2(maximum(cld.(settings["size"], settings["chunksize"]))))) - 1
 	for j = 1:iterations
+		newstart = @. newstep + 2 * newstep * div((settings["offset"] + newstep), 2 * newstep) - 1
+		interchunk_ranges = ([newstart[i] : 2 * newstep[i] : settings["offset"][i] + settings["size"][i] - 2 for i in 1:3]...)
 		newstep = 2 * newstep
-		newstart = @. newstep * cld(settings["offset"], newstep) + div(newstep, 2) - 1
-		interchunk_ranges = ([newstart[i] : newstep[i] : settings["offset"][i] + settings["size"][i] for i in 1:3]...)
 		buildgraphlayer!(graph, edgetasks, ranges, interchunk_ranges)
 	end
 end
 
-function nextmult(n::Integer, m::Integer)
+@everywhere function nextmult(n::Integer, m::Integer)
 	return n >= 0 ? div((n + m - 1), m) * m : div(n, m) * m
 end
 
-function prevmult(n::Integer, m::Integer)
+@everywhere function prevmult(n::Integer, m::Integer)
 	return -nextmult(-n, m)
 end
 
@@ -161,9 +161,9 @@ function buildgraph(settings::Dict{String,Any}, subdivisions::Integer=2)
 					continue
 				end
 				block_idx = div.(s["offset"], block_size)
-				s["size"] = min.(nextmult.(s["offset"] .+ 1, block_size) .- s["offset"], global_max .- s["offset"])
+				s["size"] = min.(nextmult.(s["offset"] .+ 1, block_size) .- s["offset"], global_max .- s["offset"]) .- 1 #Don't connect last edge!
 				s["graphpath"] = "$(settings["graphpath"])/$(subdivisions)_$(block_idx[1])_$(block_idx[2])_$(block_idx[3])"
-				s["maxdepth"] = settings["maxdepth"] - subdivisions
+				s["maxdepth"] = settings["maxdepth"] #- subdivisions + 1
 				push!(new_settings, s)
 			end
 		end
@@ -171,23 +171,11 @@ function buildgraph(settings::Dict{String,Any}, subdivisions::Integer=2)
 
 	pmap(buildgraph, new_settings)
 
-	# Move to common folder
+	# TODO: Move to common folder
+
+	# TODO: Modify graph.conf
 	
-	# Run remaining edges
-	# Init Cloud Storage and Chunked Graph
-	#graph = ChunkedGraph(settings["graphpath"], settings)
-	#edgetasks = StorageWrapper(settings["edgetasks"])
-
-	#ranges = ([settings["offset"][i] : settings["chunksize"][i] : settings["offset"][i] + settings["size"][i] - 1 for i in 1:3]...)
-
-	#newstep = settings["chunksize"]
-	#iterations = Int(ceil(log2(maximum(cld.(settings["offset"] .+ settings["size"], settings["chunksize"])))))
-	#for j = 1:iterations
-	#	newstep = 2 * newstep
-	#	newstart = @. newstep * cld(settings["offset"], newstep) + div(newstep, 2) - 1
-	#	interchunk_ranges = ([newstart[i] : newstep[i] : settings["offset"][i] + settings["size"][i] for i in 1:3]...)
-	#	buildgraphlayer!(graph, edgetasks, ranges, interchunk_ranges)
-	#end
+	# TODO: Run remaining edges
 
 end
-buildgraph(settings, 3)
+#buildgraph(settings, 3)
