@@ -46,15 +46,15 @@ mutable struct ChunkedGraphServer
 
 		# Load/Initialize Chunked Graph
 		cgs.cgraph = ChunkedGraph(abspath(settings["graphpath"], basedir))
-		# gc_enable(false)
-		# @time for f in filter(s->ismatch(r".*\.chunk", s), readdir(abspath(settings["graphpath"], basedir)))
-		# 	m = match(r"(\d+)_(\d+)_(\d+)_(\d+)\..*", f)
-		# 	id = tochunkid(map(x->parse(UInt32, x), m.captures)...)
-		# 	if tolevel(id) >= 3
-		# 		getchunk!(cgs.cgraph, id)
-		# 	end
-		# end
-		# gc_enable(true)
+		gc_enable(false)
+		@time for f in filter(s->ismatch(r".*\.chunk", s), readdir(abspath(settings["graphpath"], basedir)))
+			m = match(r"(\d+)_(\d+)_(\d+)_(\d+)\..*", f)
+			id = tochunkid(map(x->parse(UInt32, x), m.captures)...)
+			if tolevel(id) >= 3
+				getchunk!(cgs.cgraph, id)
+			end
+		end
+		gc_enable(true)
 
 		# CloudVolume to fetch watershed layer if necessary
 		cgs.watershed = CloudVolume.CloudVolumeWrapper(settings["cloudpath"]; bounded=false, fill_missing=true)
@@ -152,7 +152,7 @@ function pos2cg(cgs::ChunkedGraphServer, pos::Tuple{Integer, Integer, Integer},
 			continue
 		end
 
-		cgid = rg2cg(cgs, svids[i], worldpositions[i].I)
+		cgid = rg2cg(cgs, UInt64(svids[i]), worldpositions[i].I)
 
 		if root!(cgs.cgraph, getvertex!(cgs.cgraph, cgid)) == cgidroot
 			return cgid
