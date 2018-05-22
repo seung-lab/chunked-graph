@@ -141,6 +141,15 @@ function stringify(chunkid::ChunkID)
 	return "$(tolevel(chunkid))_$(x)_$(y)_$(z)"
 end
 
+function chunkid_to_ranges(cgraph::ChunkedGraph, chunkid::ChunkID; low_padding=0, high_padding=0)
+	l = tolevel(chunkid)
+	@assert l >= 1
+
+	pos = topos(chunkid)
+	chunksize = 2^(l-1) .* cgraph.CHUNKSIZE
+	return ((pos[i] * chunksize[i] - low_padding : (pos[i] + 1) * chunksize[i] + high_padding for i in 1:3)...)
+end
+
 @inline function world_to_chunkid(cgraph::ChunkedGraph, pos::Tuple{Integer,Integer,Integer})
 	return tochunkid(1, fld.(pos, cgraph.CHUNKSIZE)...)
 end

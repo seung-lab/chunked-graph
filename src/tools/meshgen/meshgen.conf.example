@@ -1,0 +1,9 @@
+{
+  "graphpath": "/ssd/pinky40_lvl8",
+  "cloudpath": "gs://neuroglancer/pinky40_v11/watershed",
+  "mip": 0,
+  "low_padding": 0,
+  "high_padding": 1,
+  "simplification_factor": 1000,
+  "max_simplification_error": 70
+}
